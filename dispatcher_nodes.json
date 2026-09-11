@@ -1,0 +1,39 @@
+{
+  "version": "1.0.0",
+  "description": "CodeAi 战友与IDE路由配置文件 - 供 CodeAiDispatcher 动态加载",
+  "nodes": [
+    {
+      "id": "adjudicator",
+      "name": "裁决者",
+      "aliases": ["裁决者", "裁决者H"],
+      "app": "Antigravity IDE",
+      "process_names": ["antigravity"],
+      "window_keywords": ["antigravity ide", "antigravity"],
+      "uia_strategy": "antigravity",
+      "color": "#a6e3a1",
+      "default_selected": true
+    },
+    {
+      "id": "nishe",
+      "name": "泥蛇",
+      "aliases": ["泥蛇", "泥蛇H"],
+      "app": "Visual Studio Code",
+      "process_names": ["code", "vscode"],
+      "window_keywords": ["visual studio code", "vscode"],
+      "uia_strategy": "vscode",
+      "color": "#89b4fa",
+      "default_selected": true
+    },
+    {
+      "id": "peregrine",
+      "name": "游隼",
+      "aliases": ["游隼", "游隼H"],
+      "app": "WorkBuddy",
+      "process_names": ["workbuddy"],
+      "window_keywords": ["workbuddy"],
+      "uia_strategy": "workbuddy",
+      "color": "#f9e2af",
+      "default_selected": false
+    }
+  ]
+}

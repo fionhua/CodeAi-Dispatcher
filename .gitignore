@@ -1,0 +1,13 @@
+# Logs & runtime caches
+*.log
+*.tmp
+*.bak
+CodeAi/
+.vs/
+.vscode/
+.idea/
+
+# OS artifacts
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
