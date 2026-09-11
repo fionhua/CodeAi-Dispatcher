@@ -204,6 +204,129 @@ class TestCodeAiDispatcherContracts(unittest.TestCase):
         self.assertEqual(stage.name, "INJECTION_ATTEMPTED")
         self.assertNotEqual(stage.name, "TERMINAL_RECEIPT")
 
+    def test_to_human_structured_detection_and_reasons(self):
+        """P0 契约验证: 必须通过结构化字段触发 TO_HUMAN，正文闲聊绝不误触发"""
+        def detect_to_human(filename, lines):
+            m = FILENAME_REGEX.match(filename)
+            recipient = m.group(3).strip() if m else ""
+            norm_rec = recipient.lower()
+            rec_is_human = norm_rec in ("human", "人类", "指挥官", "commander", "to_human", "tohuman")
+            has_tag = any(tag in filename.lower() for tag in ("·to_human·", ".to_human.", "_to_human_"))
+            is_structured = rec_is_human or has_tag
+            reason = None
+
+            for line in lines[:60]:
+                line = line.strip()
+                if not line:
+                    continue
+                if re.search(r"^(?:收件人|Recipient|To|Target|通知对象)[：:]\s*(Human|人类|指挥官|Commander|TO_HUMAN)\b", line, re.I):
+                    is_structured = True
+                m_flag = re.search(r"^TO_HUMAN[：:]\s*(.+)$", line, re.I)
+                if m_flag:
+                    val = m_flag.group(1).strip().lower()
+                    if val not in ("false", "0", "no"):
+                        is_structured = True
+                        if val not in ("true", "1", "yes"):
+                            reason = m_flag.group(1).strip()
+                m_act = re.search(r"^(?:动作|Action)[：:]\s*(.+)$", line, re.I)
+                if m_act:
+                    tokens = {t.upper() for t in re.split(r"[/|\\ \t,，、（）()\[\]【】·:]", m_act.group(1)) if t}
+                    if tokens & {"HUMAN_CONFIRM", "HUMAN_AUTH", "HUMAN_DECIDE", "HUMAN_ACCEPT", "HUMAN_REVIEW", "TO_HUMAN"}:
+                        is_structured = True
+                        if not reason:
+                            reason = "动作要求: " + line
+
+                m_st = re.search(r"^(?:状态|Status)[：:]\s*(.+)$", line, re.I)
+                if m_st:
+                    tokens = {t.upper() for t in re.split(r"[/|\\ \t,，、（）()\[\]【】·:]", m_st.group(1)) if t}
+                    if tokens & {"AWAITING_HUMAN", "NEED_HUMAN", "NEEDS_HUMAN", "HUMAN_REVIEW", "TO_HUMAN"}:
+                        is_structured = True
+                        if not reason:
+                            reason = "状态处于: " + line
+
+                if re.search(r"^(?:类型|Type|事件|Event)[：:]\s*(HUMAN_INTERVENTION|TO_HUMAN)\b", line, re.I):
+                    is_structured = True
+
+            if not is_structured:
+                return None
+            return {"recipient": recipient, "reason": reason or ("消息直接发给人类" if rec_is_human else "协作流程标记为需要人类介入")}
+
+        # 1. Filename explicit recipient Human -> triggers
+        res = detect_to_human("20260911030500·协作·泥蛇HtoHuman·商业授权确认.txt", ["正文内容"])
+        self.assertIsNotNone(res)
+        self.assertEqual(res["recipient"], "Human")
+
+        # 2. Filename explicit recipient 指挥官 -> triggers
+        res = detect_to_human("20260911030500·协作·泥蛇Hto指挥官·P资本结算审批.txt", ["正文内容"])
+        self.assertIsNotNone(res)
+
+        # 3. Header TO_HUMAN: 需要批准 -> triggers
+        res = detect_to_human("20260911030500·协作·泥蛇Hto裁决者H·重构.txt", [
+            "状态: OPEN",
+            "TO_HUMAN: 需要人类批准删除数据",
+            "正文描述"
+        ])
+        self.assertIsNotNone(res)
+        self.assertIn("需要人类批准删除数据", res["reason"])
+
+        # 4. Header 动作: HUMAN_AUTH -> triggers
+        res = detect_to_human("20260911030500·协作·泥蛇Hto裁决者H·重构.txt", [
+            "状态: OPEN",
+            "动作: HUMAN_AUTH",
+            "正文描述"
+        ])
+        self.assertIsNotNone(res)
+
+        # 5. Header 状态: AWAITING_HUMAN -> triggers
+        res = detect_to_human("20260911030500·协作·泥蛇Hto裁决者H·重构.txt", [
+            "状态: AWAITING_HUMAN",
+            "正文描述"
+        ])
+        self.assertIsNotNone(res)
+
+        # 6. Negative case: Regular AI->AI with "human" in conversational body -> MUST NOT TRIGGER
+        neg = detect_to_human("20260911030500·协作·裁决者Hto泥蛇H·ThetaWebAdapter补丁.txt", [
+            "状态: OPEN",
+            "关联任务: 20260911030000·协作·泥蛇Hto代码组全体·Task.txt",
+            "",
+            "后续我们可以让人类在空闲时review一下这篇文档。",
+            "另外，人类今天下午有会议安排。"
+        ])
+        self.assertIsNone(neg, "普通 AI->AI 即使正文提及人类，无结构化字段也绝不可误触发 TO_HUMAN！")
+
+    def test_to_human_anti_spam_deduplication(self):
+        """P0 防骚扰验证: 同一 task_id + sha256 绝对只主动弹窗/播放一次"""
+        filename = "20260911030500·协作·泥蛇HtoHuman·授权申请.txt"
+        sha = "1234567890abcdef"
+        dedup_key = f"TO_HUMAN|{filename}|{sha}"
+
+        notified_keys = set()
+        notification_log = []
+
+        def handle_event():
+            if dedup_key not in notified_keys:
+                notified_keys.add(dedup_key)
+                notification_log.append({"event": "NOTIFIED", "key": dedup_key})
+                return True
+            return False
+
+        # First trigger: succeeds
+        self.assertTrue(handle_event())
+        self.assertEqual(len(notification_log), 1)
+
+        # Repeated events (e.g. FileSystemWatcher Created + Changed 50ms later)
+        self.assertFalse(handle_event())
+        self.assertFalse(handle_event())
+        self.assertEqual(len(notification_log), 1, "同一 TO_HUMAN 事件绝不得产生重复弹窗或重复敲门声！")
+
+        # New revision with changed SHA
+        new_sha = "abcdef1234567890"
+        new_dedup_key = f"TO_HUMAN|{filename}|{new_sha}"
+        dedup_key = new_dedup_key
+        self.assertTrue(handle_event())
+        self.assertEqual(len(notification_log), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -1,6 +1,10 @@
 {
   "version": "1.0.0",
   "description": "CodeAi 战友与IDE路由配置文件 - 供 CodeAiDispatcher 动态加载",
+  "human_notification": {
+    "sound_enabled": true,
+    "sound_file": ""
+  },
   "nodes": [
     {
       "id": "adjudicator",

@@ -17,7 +17,7 @@ if not exist %CSC% (
 if not exist bin mkdir bin
 
 echo [*] Compiling src\CodeAiDispatcher.cs ...
-%CSC% /target:winexe /out:bin\CodeAiDispatcher.exe /lib:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF","C:\Windows\Microsoft.NET\Framework64\v4.0.30319" /r:UIAutomationClient.dll,UIAutomationTypes.dll,WindowsBase.dll,System.Web.Extensions.dll src\CodeAiDispatcher.cs
+%CSC% /codepage:65001 /target:winexe /out:bin\CodeAiDispatcher.exe /lib:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF","C:\Windows\Microsoft.NET\Framework64\v4.0.30319" /r:UIAutomationClient.dll,UIAutomationTypes.dll,WindowsBase.dll,System.Web.Extensions.dll src\CodeAiDispatcher.cs
 
 if errorlevel 1 (
     echo [FAIL] Compilation failed.

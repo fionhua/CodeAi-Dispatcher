@@ -20,14 +20,15 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Windows.Automation;
 using System.Web.Script.Serialization;
+using System.Media;
 
 [assembly: System.Reflection.AssemblyTitle("CodeAiDispatcher")]
 [assembly: System.Reflection.AssemblyDescription("CodeAi Dispatcher - 跨IDE协同通知与调度核心 (踹门神器)")]
 [assembly: System.Reflection.AssemblyCompany("量子法庭")]
 [assembly: System.Reflection.AssemblyProduct("CodeAi Dispatcher")]
 [assembly: System.Reflection.AssemblyCopyright("Copyright © 2026 量子法庭·防御型软件工程师·透明者·裁决者🌈 (L2.6)")]
-[assembly: System.Reflection.AssemblyVersion("2.6.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("2.6.0.0")]
+[assembly: System.Reflection.AssemblyVersion("2.6.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("2.6.1.0")]
 
 namespace CodeAiTools
 {
@@ -166,6 +167,12 @@ namespace CodeAiTools
         private HashSet<string> oldTwoPartKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> inFlightKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly object stateLock = new object();
+
+        // P0: TO_HUMAN Notification & Sound State
+        private HashSet<string> notifiedHumanKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private bool soundEnabled = true;
+        private string soundFile = null;
+        private static byte[] cachedKnockWav = null;
 
         private class PendingRetryItem
         {
@@ -728,13 +735,44 @@ namespace CodeAiTools
                 else
                 {
                     item.AttemptCount++;
-                    if (item.AttemptCount >= 10)
+                    if (item.AttemptCount >= 5)
                     {
                         lock (stateLock)
                         {
                             pendingRetryKeys.Remove(targetKey);
                         }
-                        LogAudit("RETRY_EXHAUSTED", string.Format("Giving up retries for [{0}] <- {1} after 10 attempts.", item.NodeName, item.FileName));
+                        LogAudit("RETRY_EXHAUSTED", string.Format("Giving up retries for [{0}] <- {1} after {2} attempts.", item.NodeName, item.FileName, item.AttemptCount));
+
+                        // P0: Continuous wake failure triggers Human Notification
+                        string exhaustDedupKey = string.Format("TO_HUMAN_EXHAUST|{0}|{1}", item.FileName, item.NodeName);
+                        bool notifyExhaust = false;
+                        lock (stateLock)
+                        {
+                            if (!notifiedHumanKeys.Contains(exhaustDedupKey))
+                            {
+                                notifiedHumanKeys.Add(exhaustDedupKey);
+                                notifyExhaust = true;
+                            }
+                        }
+                        if (notifyExhaust)
+                        {
+                            ToHumanEvent exhaustEvt = new ToHumanEvent
+                            {
+                                Sender = "Dispatcher哨兵",
+                                Recipient = "Human",
+                                TaskId = item.FileName,
+                                TaskTitle = item.Title,
+                                Reason = string.Format("节点 [{0}] 连续唤醒失败（已重试 {1} 次），需人工介入", item.NodeName, item.AttemptCount),
+                                Summary = string.Format("未检测到目标节点 [{0}] 的活动窗口，注入重试已耗尽。请检查 IDE 是否已启动且处于正常状态。", item.NodeName),
+                                FilePath = item.FilePath,
+                                Sha256 = item.Sha256,
+                                DedupKey = exhaustDedupKey
+                            };
+                            ShowHumanNotification(exhaustEvt);
+                            PlayDoubleKnockSound();
+                            LogAudit("TO_HUMAN_TRIGGERED", exhaustEvt.Reason);
+                            MarkKeyProcessed(exhaustDedupKey);
+                        }
                     }
                     else
                     {
@@ -804,6 +842,15 @@ namespace CodeAiTools
                     {
                         string trimmed = line.Trim();
                         if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#")) continue;
+
+                        if (trimmed.StartsWith("TO_HUMAN|", StringComparison.OrdinalIgnoreCase) ||
+                            trimmed.StartsWith("TO_HUMAN_EXHAUST|", StringComparison.OrdinalIgnoreCase))
+                        {
+                            notifiedHumanKeys.Add(trimmed);
+                            processedKeys.Add(trimmed);
+                            migratedOutput.Add(trimmed);
+                            continue;
+                        }
 
                         string[] parts = trimmed.Split('|');
                         if (parts.Length == 2)
@@ -910,6 +957,24 @@ namespace CodeAiTools
                         LogAudit("BASELINE_ESTABLISHED", string.Format("Baseline indexed {0} existing keys across {1} files without dispatch.", baselineKeys.Count, files.Length));
                     }
                 }
+
+                // P0: Baseline existing meeting files for TO_HUMAN to prevent notification storm on boot
+                try
+                {
+                    if (Directory.Exists(meetingDir))
+                    {
+                        foreach (string file in Directory.GetFiles(meetingDir, "*.*"))
+                        {
+                            string fName = Path.GetFileName(file);
+                            string sha = ComputeFileSha256(file);
+                            if (!string.IsNullOrEmpty(sha))
+                            {
+                                notifiedHumanKeys.Add(string.Format("TO_HUMAN|{0}|{1}", fName, sha));
+                            }
+                        }
+                    }
+                }
+                catch { }
             }
         }
 
@@ -1078,6 +1143,31 @@ namespace CodeAiTools
                 }
 
                 LogAudit(DeliveryStage.FILE_DISCOVERED.ToString(), string.Format("{0} (status:{1}) -> sender:{2}, recipient:{3}", fileName, fileStatus, senderName, recipientName));
+
+                // P0: Structured TO_HUMAN Detection & Notification (Sound + Card)
+                ToHumanEvent humanEvt = DetectStructuredToHuman(filePath, fileName, senderName, recipientName, title, sha256);
+                if (humanEvt != null)
+                {
+                    string humanDedupKey = string.Format("TO_HUMAN|{0}|{1}", fileName, sha256);
+                    bool shouldNotify = false;
+                    lock (stateLock)
+                    {
+                        if (!notifiedHumanKeys.Contains(humanDedupKey))
+                        {
+                            notifiedHumanKeys.Add(humanDedupKey);
+                            shouldNotify = true;
+                        }
+                    }
+
+                    if (shouldNotify)
+                    {
+                        LogAudit("TO_HUMAN_TRIGGERED", string.Format("Structured TO_HUMAN in [{0}]: sender={1}, reason={2}", fileName, humanEvt.Sender, humanEvt.Reason));
+                        ShowHumanNotification(humanEvt);
+                        PlayDoubleKnockSound();
+                        LogAudit("TO_HUMAN_NOTIFIED", string.Format("Notified human for [{0}]", fileName));
+                        MarkKeyProcessed(humanDedupKey);
+                    }
+                }
 
                 // Determine target desktop nodes
                 List<string> targetNodes = ResolveTargetNodes(senderName, recipientName, title);
@@ -1350,9 +1440,18 @@ namespace CodeAiTools
                     string jsonText = File.ReadAllText(configPath, Encoding.UTF8);
                     var serializer = new JavaScriptSerializer();
                     var dict = serializer.Deserialize<Dictionary<string, object>>(jsonText);
-                    if (dict != null && dict.ContainsKey("nodes"))
+                    if (dict != null)
                     {
-                        var rawNodes = dict["nodes"] as System.Collections.ArrayList;
+                        if (dict.ContainsKey("human_notification") && dict["human_notification"] is Dictionary<string, object>)
+                        {
+                            var hn = (Dictionary<string, object>)dict["human_notification"];
+                            if (hn.ContainsKey("sound_enabled")) soundEnabled = Convert.ToBoolean(hn["sound_enabled"]);
+                            if (hn.ContainsKey("sound_file")) soundFile = Convert.ToString(hn["sound_file"]);
+                        }
+
+                        if (dict.ContainsKey("nodes"))
+                        {
+                            var rawNodes = dict["nodes"] as System.Collections.ArrayList;
                         if (rawNodes != null)
                         {
                             foreach (Dictionary<string, object> n in rawNodes)
@@ -1397,7 +1496,8 @@ namespace CodeAiTools
                         }
                     }
                 }
-                catch (Exception ex)
+            }
+            catch (Exception ex)
                 {
                     LogAudit("CONFIG_LOAD_WARN", "Failed to load dispatcher_nodes.json: " + ex.Message + ". Falling back to defaults.");
                 }
@@ -2061,10 +2161,546 @@ namespace CodeAiTools
             }
         }
 
+        // ====================================================================
+        // P0: TO_HUMAN Notification & Double-Knock Sound Implementation
+        // ====================================================================
+
+        public static byte[] GenerateDoubleKnockWav()
+        {
+            int sampleRate = 22050;
+            double duration = 0.32;
+            int totalSamples = (int)(sampleRate * duration);
+            short[] samples = new short[totalSamples];
+
+            for (int i = 0; i < totalSamples; i++)
+            {
+                double t = (double)i / sampleRate;
+                double val = 0.0;
+
+                // Knock 1: 0.01s to 0.10s (基频 190Hz -> 140Hz 伴随木质谐波与快速指数衰减)
+                if (t >= 0.01 && t < 0.10)
+                {
+                    double kt = t - 0.01;
+                    double env = Math.Exp(-42.0 * kt);
+                    double freq = 190.0 - (50.0 * kt / 0.09);
+                    val += 0.85 * env * (0.75 * Math.Sin(2.0 * Math.PI * freq * kt) + 0.25 * Math.Sin(2.0 * Math.PI * freq * 1.8 * kt));
+                }
+                // Knock 2: 0.14s to 0.23s (基频 220Hz -> 170Hz 伴随木质谐波与快速指数衰减)
+                if (t >= 0.14 && t < 0.23)
+                {
+                    double kt = t - 0.14;
+                    double env = Math.Exp(-40.0 * kt);
+                    double freq = 220.0 - (50.0 * kt / 0.09);
+                    val += 0.95 * env * (0.75 * Math.Sin(2.0 * Math.PI * freq * kt) + 0.25 * Math.Sin(2.0 * Math.PI * freq * 1.8 * kt));
+                }
+
+                if (val > 1.0) val = 1.0;
+                if (val < -1.0) val = -1.0;
+                samples[i] = (short)(val * 28000);
+            }
+
+            using (MemoryStream ms = new MemoryStream())
+            using (BinaryWriter bw = new BinaryWriter(ms))
+            {
+                int dataSize = totalSamples * sizeof(short);
+                // RIFF chunk descriptor
+                bw.Write(Encoding.ASCII.GetBytes("RIFF"));
+                bw.Write(36 + dataSize);
+                bw.Write(Encoding.ASCII.GetBytes("WAVE"));
+                // "fmt " sub-chunk
+                bw.Write(Encoding.ASCII.GetBytes("fmt "));
+                bw.Write(16); // subchunk size
+                bw.Write((short)1); // AudioFormat: PCM (1)
+                bw.Write((short)1); // NumChannels: Mono (1)
+                bw.Write(sampleRate); // SampleRate
+                bw.Write(sampleRate * sizeof(short)); // ByteRate
+                bw.Write((short)sizeof(short)); // BlockAlign
+                bw.Write((short)16); // BitsPerSample
+                // "data" sub-chunk
+                bw.Write(Encoding.ASCII.GetBytes("data"));
+                bw.Write(dataSize);
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    bw.Write(samples[i]);
+                }
+                return ms.ToArray();
+            }
+        }
+
+        private void PlayDoubleKnockSound()
+        {
+            Task.Run(() =>
+            {
+                try
+                {
+                    if (!soundEnabled) return;
+                    if (!string.IsNullOrEmpty(soundFile) && File.Exists(soundFile))
+                    {
+                        using (SoundPlayer player = new SoundPlayer(soundFile))
+                        {
+                            player.PlaySync();
+                        }
+                        return;
+                    }
+
+                    if (cachedKnockWav == null)
+                    {
+                        cachedKnockWav = GenerateDoubleKnockWav();
+                    }
+
+                    using (MemoryStream ms = new MemoryStream(cachedKnockWav))
+                    using (SoundPlayer player = new SoundPlayer(ms))
+                    {
+                        player.PlaySync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogAudit("SOUND_PLAY_ERROR", ex.Message);
+                }
+            });
+        }
+
+        private ToHumanEvent DetectStructuredToHuman(string filePath, string fileName, string senderName, string recipientName, string title, string sha256)
+        {
+            string normRecipient = (recipientName ?? "").Trim().ToLower();
+            bool recipientIsHuman = normRecipient == "human" ||
+                                    normRecipient == "人类" ||
+                                    normRecipient == "指挥官" ||
+                                    normRecipient == "commander" ||
+                                    normRecipient == "to_human" ||
+                                    normRecipient == "tohuman";
+
+            bool filenameHasToHumanTag = fileName.IndexOf("·TO_HUMAN·", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                         fileName.IndexOf(".TO_HUMAN.", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                         fileName.IndexOf("_TO_HUMAN_", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            bool isStructuredToHuman = recipientIsHuman || filenameHasToHumanTag;
+            string extractedReason = null;
+            string extractedSummary = null;
+            string extractedTaskId = fileName;
+
+            if (File.Exists(filePath))
+            {
+                try
+                {
+                    string[] lines = File.ReadAllLines(filePath, Encoding.UTF8);
+                    int maxScan = Math.Min(lines.Length, 60);
+                    List<string> bodyLines = new List<string>();
+
+                    for (int i = 0; i < maxScan; i++)
+                    {
+                        string line = lines[i].Trim();
+                        if (string.IsNullOrEmpty(line)) continue;
+
+                        Match mHumanRecipient = Regex.Match(line, @"^(?:收件人|Recipient|To|Target|通知对象)[：:]\s*(Human|人类|指挥官|Commander|TO_HUMAN)\b", RegexOptions.IgnoreCase);
+                        if (mHumanRecipient.Success)
+                        {
+                            isStructuredToHuman = true;
+                        }
+
+                        Match mToHumanFlag = Regex.Match(line, @"^TO_HUMAN[：:]\s*(.+)$", RegexOptions.IgnoreCase);
+                        if (mToHumanFlag.Success)
+                        {
+                            string val = mToHumanFlag.Groups[1].Value.Trim().ToLower();
+                            if (val != "false" && val != "0" && val != "no")
+                            {
+                                isStructuredToHuman = true;
+                                if (val != "true" && val != "1" && val != "yes")
+                                {
+                                    extractedReason = mToHumanFlag.Groups[1].Value.Trim();
+                                }
+                            }
+                        }
+
+                        Match mAction = Regex.Match(line, @"^(?:动作|Action)[：:]\s*(.+)$", RegexOptions.IgnoreCase);
+                        if (mAction.Success)
+                        {
+                            char[] delims = new char[] { '/', '|', '\\', ' ', '\t', ',', '，', '、', '(', ')', '（', '）', '[', ']', '【', '】', '·', ':' };
+                            string[] tokens = mAction.Groups[1].Value.Split(delims, StringSplitOptions.RemoveEmptyEntries);
+                            foreach (var tok in tokens)
+                            {
+                                string tUpper = tok.Trim().ToUpper();
+                                if (tUpper == "HUMAN_CONFIRM" || tUpper == "HUMAN_AUTH" || tUpper == "HUMAN_DECIDE" || tUpper == "HUMAN_ACCEPT" || tUpper == "HUMAN_REVIEW" || tUpper == "TO_HUMAN")
+                                {
+                                    isStructuredToHuman = true;
+                                    if (string.IsNullOrEmpty(extractedReason))
+                                    {
+                                        extractedReason = "动作要求: " + tUpper;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+
+                        Match mStatus = Regex.Match(line, @"^(?:状态|Status)[：:]\s*(.+)$", RegexOptions.IgnoreCase);
+                        if (mStatus.Success)
+                        {
+                            char[] delims = new char[] { '/', '|', '\\', ' ', '\t', ',', '，', '、', '(', ')', '（', '）', '[', ']', '【', '】', '·', ':' };
+                            string[] tokens = mStatus.Groups[1].Value.Split(delims, StringSplitOptions.RemoveEmptyEntries);
+                            foreach (var tok in tokens)
+                            {
+                                string tUpper = tok.Trim().ToUpper();
+                                if (tUpper == "AWAITING_HUMAN" || tUpper == "NEED_HUMAN" || tUpper == "NEEDS_HUMAN" || tUpper == "HUMAN_REVIEW" || tUpper == "TO_HUMAN")
+                                {
+                                    isStructuredToHuman = true;
+                                    if (string.IsNullOrEmpty(extractedReason))
+                                    {
+                                        extractedReason = "状态处于: " + tUpper;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+
+                        Match mType = Regex.Match(line, @"^(?:类型|Type|事件|Event)[：:]\s*(HUMAN_INTERVENTION|TO_HUMAN)\b", RegexOptions.IgnoreCase);
+                        if (mType.Success)
+                        {
+                            isStructuredToHuman = true;
+                        }
+
+                        Match mReason = Regex.Match(line, @"^(?:原因|Reason|事由|说明)[：:]\s*(.+)$", RegexOptions.IgnoreCase);
+                        if (mReason.Success)
+                        {
+                            extractedReason = mReason.Groups[1].Value.Trim();
+                        }
+
+                        Match mTask = Regex.Match(line, @"^(?:任务|Task|Task_ID|任务编号|关联任务)[：:]\s*(.+)$", RegexOptions.IgnoreCase);
+                        if (mTask.Success)
+                        {
+                            extractedTaskId = mTask.Groups[1].Value.Trim();
+                        }
+
+                        // Filter out headers, headings, metadata for candidate body summary
+                        if (!line.StartsWith("#") && !line.StartsWith("---") && !line.Contains("：") && !line.Contains(":"))
+                        {
+                            bodyLines.Add(line);
+                        }
+                    }
+
+                    if (bodyLines.Count > 0)
+                    {
+                        extractedSummary = bodyLines[0];
+                        if (extractedSummary.Length > 140)
+                            extractedSummary = extractedSummary.Substring(0, 140) + "...";
+                    }
+                }
+                catch { }
+            }
+
+            if (!isStructuredToHuman)
+            {
+                return null;
+            }
+
+            if (string.IsNullOrEmpty(extractedReason))
+            {
+                extractedReason = recipientIsHuman ? "协作消息明确发给人类，需人工查看与处理" : "协作流程标记为需要人类介入";
+            }
+
+            if (string.IsNullOrEmpty(extractedSummary))
+            {
+                extractedSummary = string.Format("来自 [{0}] 的协作文件: {1}", senderName, title);
+            }
+
+            return new ToHumanEvent
+            {
+                Sender = senderName,
+                Recipient = recipientName,
+                TaskId = string.IsNullOrEmpty(extractedTaskId) ? fileName : extractedTaskId,
+                TaskTitle = title,
+                Reason = extractedReason,
+                Summary = extractedSummary,
+                FilePath = filePath,
+                Sha256 = sha256,
+                DedupKey = string.Format("TO_HUMAN|{0}|{1}", fileName, sha256)
+            };
+        }
+
+        private void ShowHumanNotification(ToHumanEvent evt)
+        {
+            if (this.IsHandleCreated)
+            {
+                this.BeginInvoke((Action)(() =>
+                {
+                    try
+                    {
+                        HumanNotificationForm card = new HumanNotificationForm(evt, (stage, detail) => LogAudit(stage, detail));
+                        card.Show();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogAudit("NOTIFICATION_UI_ERROR", ex.Message);
+                    }
+                }));
+            }
+        }
+
         private class TargetNode
         {
             public string Name { get; set; }
             public string[] Keywords { get; set; }
+        }
+    }
+
+    public class ToHumanEvent
+    {
+        public string Sender { get; set; }
+        public string Recipient { get; set; }
+        public string TaskId { get; set; }
+        public string TaskTitle { get; set; }
+        public string Reason { get; set; }
+        public string Summary { get; set; }
+        public string FilePath { get; set; }
+        public string Sha256 { get; set; }
+        public string DedupKey { get; set; }
+    }
+
+    public class HumanNotificationForm : Form
+    {
+        private ToHumanEvent evt;
+        private Action<string, string> logAudit;
+        private static readonly List<HumanNotificationForm> activeCards = new List<HumanNotificationForm>();
+        private bool isMouseDown = false;
+        private Point mouseOffset;
+
+        public HumanNotificationForm(ToHumanEvent evt, Action<string, string> logAudit)
+        {
+            this.evt = evt;
+            this.logAudit = logAudit;
+            InitializeCardComponent();
+        }
+
+        protected override bool ShowWithoutActivation
+        {
+            get { return true; }
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x00000008; // WS_EX_TOPMOST
+                return cp;
+            }
+        }
+
+        private void InitializeCardComponent()
+        {
+            this.FormBorderStyle = FormBorderStyle.None;
+            this.StartPosition = FormStartPosition.Manual;
+            this.Size = new Size(420, 230);
+            this.BackColor = Color.FromArgb(24, 25, 32);
+            this.ShowInTaskbar = false;
+            this.DoubleBuffered = true;
+
+            // Calculate position in working area
+            Rectangle wa = Screen.PrimaryScreen.WorkingArea;
+            int offsetIndex;
+            lock (activeCards)
+            {
+                offsetIndex = activeCards.Count;
+                activeCards.Add(this);
+            }
+            int posX = wa.Right - this.Width - 20;
+            int posY = wa.Bottom - this.Height - 20 - (offsetIndex * (this.Height + 12));
+            if (posY < wa.Top + 10) posY = wa.Top + 10;
+            this.Location = new Point(posX, posY);
+
+            // Header Panel
+            Panel pnlHeader = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 36,
+                BackColor = Color.FromArgb(30, 32, 42)
+            };
+            pnlHeader.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    isMouseDown = true;
+                    mouseOffset = new Point(-e.X, -e.Y);
+                }
+            };
+            pnlHeader.MouseMove += (s, e) =>
+            {
+                if (isMouseDown)
+                {
+                    Point mousePos = Control.MousePosition;
+                    mousePos.Offset(mouseOffset.X, mouseOffset.Y);
+                    this.Location = mousePos;
+                }
+            };
+            pnlHeader.MouseUp += (s, e) => { if (e.Button == MouseButtons.Left) isMouseDown = false; };
+
+            Label lblTitle = new Label
+            {
+                Text = "🔔 AI Team needs you",
+                ForeColor = Color.FromArgb(250, 179, 135), // Warm Peach
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                Location = new Point(12, 8),
+                AutoSize = true,
+                BackColor = Color.Transparent
+            };
+            pnlHeader.Controls.Add(lblTitle);
+
+            Button btnClose = new Button
+            {
+                Text = "✕",
+                ForeColor = Color.FromArgb(166, 173, 200),
+                BackColor = Color.Transparent,
+                FlatStyle = FlatStyle.Flat,
+                Size = new Size(28, 28),
+                Location = new Point(384, 4),
+                Cursor = Cursors.Hand
+            };
+            btnClose.FlatAppearance.BorderSize = 0;
+            btnClose.FlatAppearance.MouseOverBackColor = Color.FromArgb(231, 130, 132);
+            btnClose.Click += (s, e) =>
+            {
+                if (logAudit != null) logAudit("TO_HUMAN_DISMISSED", evt.TaskId);
+                this.Close();
+            };
+            pnlHeader.Controls.Add(btnClose);
+            this.Controls.Add(pnlHeader);
+
+            // Content elements
+            Label lblFrom = new Label
+            {
+                Text = string.Format("From: {0}", evt.Sender ?? "Unknown"),
+                ForeColor = Color.FromArgb(148, 226, 213), // Mint / Cyan
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                Location = new Point(14, 44),
+                Size = new Size(180, 18),
+                AutoEllipsis = true
+            };
+            this.Controls.Add(lblFrom);
+
+            Label lblTask = new Label
+            {
+                Text = string.Format("Task: {0}", evt.TaskTitle ?? evt.TaskId ?? "Collaboration Task"),
+                ForeColor = Color.FromArgb(205, 214, 244),
+                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
+                Location = new Point(14, 64),
+                Size = new Size(392, 18),
+                AutoEllipsis = true
+            };
+            this.Controls.Add(lblTask);
+
+            Label lblReason = new Label
+            {
+                Text = string.Format("Reason: {0}", evt.Reason ?? "需要人类介入"),
+                ForeColor = Color.FromArgb(249, 226, 175), // Soft Gold
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                Location = new Point(14, 84),
+                Size = new Size(392, 20),
+                AutoEllipsis = true
+            };
+            this.Controls.Add(lblReason);
+
+            // Summary Box
+            Panel pnlSummary = new Panel
+            {
+                Location = new Point(14, 108),
+                Size = new Size(392, 68),
+                BackColor = Color.FromArgb(17, 17, 27),
+                BorderStyle = BorderStyle.None
+            };
+            Label lblSummaryText = new Label
+            {
+                Text = evt.Summary ?? "",
+                ForeColor = Color.FromArgb(186, 194, 222),
+                Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular),
+                Dock = DockStyle.Fill,
+                Padding = new Padding(6),
+                AutoEllipsis = true
+            };
+            pnlSummary.Controls.Add(lblSummaryText);
+            this.Controls.Add(pnlSummary);
+
+            // Bottom Buttons
+            Button btnView = new Button
+            {
+                Text = "📄 查看消息",
+                Size = new Size(110, 32),
+                Location = new Point(14, 186),
+                BackColor = Color.FromArgb(137, 180, 250), // Accent Blue
+                ForeColor = Color.FromArgb(17, 17, 27),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnView.FlatAppearance.BorderSize = 0;
+            btnView.Click += (s, e) =>
+            {
+                if (logAudit != null) logAudit("TO_HUMAN_VIEWED", evt.TaskId);
+                try
+                {
+                    if (!string.IsNullOrEmpty(evt.FilePath) && File.Exists(evt.FilePath))
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(evt.FilePath)
+                        {
+                            UseShellExecute = true
+                        });
+                    }
+                    else if (!string.IsNullOrEmpty(evt.FilePath) && Directory.Exists(Path.GetDirectoryName(evt.FilePath)))
+                    {
+                        System.Diagnostics.Process.Start("explorer.exe", Path.GetDirectoryName(evt.FilePath));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (logAudit != null) logAudit("TO_HUMAN_VIEW_ERROR", ex.Message);
+                }
+                this.Close();
+            };
+            this.Controls.Add(btnView);
+
+            Button btnAck = new Button
+            {
+                Text = "知道了",
+                Size = new Size(85, 32),
+                Location = new Point(134, 186),
+                BackColor = Color.FromArgb(49, 50, 68),
+                ForeColor = Color.FromArgb(205, 214, 244),
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
+                Cursor = Cursors.Hand
+            };
+            btnAck.FlatAppearance.BorderSize = 0;
+            btnAck.Click += (s, e) =>
+            {
+                if (logAudit != null) logAudit("TO_HUMAN_DISMISSED", evt.TaskId);
+                this.Close();
+            };
+            this.Controls.Add(btnAck);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            // Draw sleek 1px border
+            using (Pen borderPen = new Pen(Color.FromArgb(69, 71, 90), 1))
+            {
+                e.Graphics.DrawRectangle(borderPen, 0, 0, this.Width - 1, this.Height - 1);
+            }
+            // Top 3px accent bar (Peach to Coral)
+            using (LinearGradientBrush brush = new LinearGradientBrush(
+                new Point(0, 0), new Point(this.Width, 0),
+                Color.FromArgb(250, 179, 135), Color.FromArgb(243, 139, 168)))
+            {
+                e.Graphics.FillRectangle(brush, 0, 0, this.Width, 3);
+            }
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            base.OnFormClosed(e);
+            lock (activeCards)
+            {
+                activeCards.Remove(this);
+            }
         }
     }
 }
