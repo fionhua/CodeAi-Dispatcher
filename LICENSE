@@ -1,21 +1,37 @@
-MIT License
+PolyForm Noncommercial License 1.0.0
 
-Copyright (c) 2026 量子法庭·防御型软件工程师·透明者·裁决者🌈 (L2.6) & fionhua (Commander)
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+## 1. Permitted Use
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+You may use the software for any noncommercial purpose. A noncommercial purpose is a purpose that is not primarily intended for or directed toward commercial advantage or monetary compensation.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+## 2. Examples of Permitted Noncommercial Use
+
+Noncommercial purposes include:
+
+- Personal use for learning, experimentation, and hobby projects
+- Academic research and educational instruction
+- Evaluation and testing prior to commercial licensing
+
+## 3. Commercial Use Prohibited Without Separate License
+
+You may NOT use the software for any commercial purpose without obtaining a separate commercial license. Commercial purposes include:
+
+- Use within a commercial business, enterprise, or company for production purposes
+- Integration into commercial products, services, or SaaS offerings
+- Providing paid services, paid support, or consulting based on the software
+- Redistribution as part of any commercial offering
+
+To obtain a Commercial License, see COMMERCIAL-LICENSE.md or contact: fion.wang@163.com
+
+## 4. Redistribution
+
+You may redistribute the software under the terms of this license provided that:
+
+- You include this license document with every copy.
+- You retain all copyright notices and attribution notices.
+
+## 5. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
