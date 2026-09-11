@@ -178,6 +178,8 @@ namespace CodeAiTools
             public int AttemptCount;
         }
         private List<PendingRetryItem> pendingRetries = new List<PendingRetryItem>();
+        private readonly HashSet<string> pendingRetryKeys = new HashSet<string>();
+        private bool isAuditDegraded = false;
         private System.Windows.Forms.Timer retryTimer;
 
         // 5 Delivery Stages
@@ -185,7 +187,8 @@ namespace CodeAiTools
         {
             FILE_DISCOVERED,
             TARGET_FOUND,
-            SEND_ATTEMPTED,
+            INJECTION_ATTEMPTED,
+            SEND_ATTEMPTED = INJECTION_ATTEMPTED, // Backward-compat alias
             RECIPIENT_ACK,
             TERMINAL_RECEIPT
         }
@@ -715,14 +718,22 @@ namespace CodeAiTools
                 string targetKey = string.Format("{0}|{1}|{2}", item.FileName, item.Sha256, item.NodeName);
                 if (success)
                 {
+                    lock (stateLock)
+                    {
+                        pendingRetryKeys.Remove(targetKey);
+                    }
                     MarkKeyProcessed(targetKey);
-                    LogAudit(DeliveryStage.SEND_ATTEMPTED.ToString(), string.Format("Retry injection succeeded for [{0}] <- {1}", item.NodeName, item.FileName));
+                    LogAudit(DeliveryStage.INJECTION_ATTEMPTED.ToString(), string.Format("Retry injection succeeded for [{0}] <- {1}", item.NodeName, item.FileName));
                 }
                 else
                 {
                     item.AttemptCount++;
                     if (item.AttemptCount >= 10)
                     {
+                        lock (stateLock)
+                        {
+                            pendingRetryKeys.Remove(targetKey);
+                        }
                         LogAudit("RETRY_EXHAUSTED", string.Format("Giving up retries for [{0}] <- {1} after 10 attempts.", item.NodeName, item.FileName));
                     }
                     else
@@ -1093,25 +1104,30 @@ namespace CodeAiTools
                     if (attempted)
                     {
                         MarkKeyProcessed(targetKey);
-                        UpdateTaskDeliveryState(fileName, node, isReceipt ? stage.ToString() : DeliveryStage.SEND_ATTEMPTED.ToString(), null);
+                        UpdateTaskDeliveryState(fileName, node, isReceipt ? stage.ToString() : DeliveryStage.INJECTION_ATTEMPTED.ToString(), null);
                     }
                     else
                     {
                         // Target window not found: schedule retry
                         lock (stateLock)
                         {
-                            pendingRetries.Add(new PendingRetryItem
+                            string retryKey = string.Format("{0}|{1}|{2}", fileName, sha256, node);
+                            if (!pendingRetryKeys.Contains(retryKey))
                             {
-                                NodeName = node,
-                                FilePath = filePath,
-                                FileName = fileName,
-                                Title = title,
-                                Sha256 = sha256,
-                                NextAttemptUtc = DateTime.UtcNow.AddSeconds(10),
-                                AttemptCount = 1
-                            });
+                                pendingRetryKeys.Add(retryKey);
+                                pendingRetries.Add(new PendingRetryItem
+                                {
+                                    NodeName = node,
+                                    FilePath = filePath,
+                                    FileName = fileName,
+                                    Title = title,
+                                    Sha256 = sha256,
+                                    NextAttemptUtc = DateTime.UtcNow.AddSeconds(10),
+                                    AttemptCount = 1
+                                });
+                                LogAudit("RETRY_SCHEDULED", string.Format("Scheduled backoff retry for [{0}] <- {1}", node, fileName));
+                            }
                         }
-                        LogAudit("RETRY_SCHEDULED", string.Format("Scheduled backoff retry for [{0}] <- {1}", node, fileName));
                     }
                 }
 
@@ -1609,7 +1625,7 @@ namespace CodeAiTools
 
                 ActivateAndInject(hwnd, nodeName);
 
-                LogAudit(DeliveryStage.SEND_ATTEMPTED.ToString(), string.Format("Injected notice to [{0}] for {1}", nodeName, sourceFile));
+                LogAudit(DeliveryStage.INJECTION_ATTEMPTED.ToString(), string.Format("Injected notice to [{0}] for {1}", nodeName, sourceFile));
                 UpdateUIStatus(string.Format("✅ 已尝试敲门: [{0}] (SEND_ATTEMPTED)", nodeName));
                 return true;
             }
@@ -1660,8 +1676,20 @@ namespace CodeAiTools
             {
                 string auditLog = Path.Combine(runtimeStateDir, "dispatcher_audit.log");
                 File.AppendAllText(auditLog, logLine + Environment.NewLine, Encoding.UTF8);
+                if (isAuditDegraded)
+                {
+                    isAuditDegraded = false;
+                    UpdateUIStatus("审计日志写入已恢复");
+                }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                if (!isAuditDegraded)
+                {
+                    isAuditDegraded = true;
+                    UpdateUIStatus("⚠️ AUDIT_DEGRADED: 审计日志写入异常: " + ex.Message);
+                }
+            }
         }
 
         private void UpdateUIStatus(string text)

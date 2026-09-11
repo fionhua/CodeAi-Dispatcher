@@ -1,0 +1,40 @@
+name: CI & Verification
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Run Contract & State Machine Tests
+      run: |
+        python -m unittest discover -s tests
+
+    - name: Build Native Windows Executable
+      run: |
+        cmd /c build.bat
+
+    - name: Verify Binary & Output SHA-256 Checksum
+      shell: pwsh
+      run: |
+        if (!(Test-Path "bin\CodeAiDispatcher.exe")) {
+          throw "bin\CodeAiDispatcher.exe was not created!"
+        }
+        $hash = Get-FileHash "bin\CodeAiDispatcher.exe" -Algorithm SHA256
+        Write-Host "=================================================================="
+        Write-Host "Binary Built Successfully: bin\CodeAiDispatcher.exe"
+        Write-Host "SHA-256 Checksum: $($hash.Hash)"
+        Write-Host "=================================================================="

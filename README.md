@@ -24,22 +24,33 @@
 
 ---
 
-## ✨ 核心特性 (Key Features)
+## 🏛️ 核心架构五大支柱 (The 5 Architectural Pillars)
 
-### 1. ⚡ 纯原生零依赖 (Zero-Dependency & Extreme Lightweight)
-- 依靠 Windows 自带的 `.NET Framework 4.0 (csc.exe)` 即可编译。
-- **无 Electron 臃肿、无 Node.js、无 Python 环境要求**。
-- 生成的单个独立可执行程序仅 **~55 KB**，内存占用低至 **30 MB**，冷启动用时 **< 100ms**！
+根据协同战役实证，CodeAi Dispatcher 能够稳定运行并具备高复用价值的核心骨架由以下五条原则构成：
 
-### 2. 🚪 物理“踹门”与精准 UIA 聚焦 (Precise UIA Door-Kicking)
-- 不只是弹窗提示！通过 Windows UIAutomation 技术精准穿透现代复杂 IDE：
-  - **Antigravity IDE**：定位 Web 混合容器与 Message Input 交互节点；
+1. **文件为事实源 (File as Single Source of Truth)**：调度器绝不维护黑盒内部数据库；一切任务分派、状态流转、审查意见全部沉淀在可见的 `.txt` / `.md` 协作文件中。
+2. **Dispatcher 只是门铃 (Dispatcher as Doorbell, Not Transport)**：调度器只负责“敲门唤醒”，不负责充当不可靠的内存管道。正文与上下文永远由各 AI 从文件系统中直接获取。
+3. **三元幂等键 (Idempotent 3-Part Key)**：采用 `FileName | Sha256 | TargetNode` 严格定义任务唯一性，已处理状态跨会话持久化，杜绝重播风暴。
+4. **GUI 人工熔断 (Human Sentinel & Kill Switch)**：一键暂停监听（`isWatchingActive` 熔断）、人工后备单选/全选、物理置顶与托盘控制，确保人类指挥官拥有最高级干预权。
+5. **配置化节点路由 (Config-Driven Pluggable Nodes)**：战友名称、别名、IDE 窗口关键字与在位探测规则外置于 `dispatcher_nodes.json`，换 IDE 或增编下属免重新编译。
+
+---
+
+## ✨ 核心特性与克制工程实现 (Key Features)
+
+### 1. ⚡ 仅依赖 Windows/.NET 环境 (Native & Extremely Lightweight)
+- 依靠 Windows 自带的 `.NET Framework 4.0 (csc.exe)` 即可编译运行，无 Node.js/Python 运行时依赖。
+- 生成的单个独立可执行程序仅 **~55 KB**，常驻内存仅约 **30 MB**，冷启动用时 **< 100ms**。
+
+### 2. 🚪 物理“踹门”与 UI 自动化唤醒 (UIA Door-Kicking)
+- 通过 Windows UIAutomation 技术与启发式控件树探测，已针对常见主流环境完成适配：
+  - **Antigravity IDE**：探测定位 Message Input 交互节点；
   - **Visual Studio Code**：穿透 Monaco Editor / ProseMirror 嵌套结构，锁定交互 Edit 控件；
-  - **WorkBuddy / CodeX**：动态兼容坐标聚焦与标准自动化回退。
-- 模拟物理敲门：将消息置入剪贴板，聚焦目标输入框，自动触发回车并播放提示音。
+  - **WorkBuddy / CodeX**：动态兼容自动化坐标与剪贴板回车注入。
+- **阶段语义清晰**：窗口激活与敲门注入仅标记为 `INJECTION_ATTEMPTED`，只有目标战友产出 `ACK` 或终端状态（如 `DONE`, `NEEDS_CTO`）才视为送达闭环。
 
 ### 3. 🧩 热插拔节点配置 (`dispatcher_nodes.json`)
-- **改配置，不改代码**！随时增加战友或迁移 IDE：
+- 随时增减战友或迁移 IDE：
   ```json
   {
     "nodes": [
@@ -55,17 +66,16 @@
     ]
   }
   ```
-- 泥蛇若从 VSCode 切换到 CodeX，只需在 JSON 中修改进程名与标题关键字，**零编译即时生效**！
-- UI 界面的人工后备目标复选框全自动依据配置动态渲染。
+- 战友若更换编辑器，只需修改对应 JSON 字段即可即时生效；UI 界面复选框全自动依据配置动态渲染。
 
 ### 4. 📊 极简高辨识度看板 (Sender-First Grid & Dark Theme)
 - 表格清晰展示：`[时间]` | `[发件战友]` | `[阶段 (通知战友)]` | `[事项 / 文件]`。
-- 一眼看透：**是谁写的信、处于什么阶段、正在踹谁的门**！
-- 优雅的 Catppuccin / Dracula 暗黑配色，沉浸式 Win11 标题栏，支持多选、右键菜单、一键置顶 (`TopMost`) 与托盘常驻。
+- 采用 Catppuccin / Dracula 暗黑配色，支持 Win11 沉浸式标题栏、表格多选、右键操作、一键置顶 (`TopMost`) 与托盘常驻。
+- **审计异常显化**：若日志写入异常，状态栏将显式提示 `⚠️ AUDIT_DEGRADED`，防止“无证据假死”。
 
-### 5. 🛡️ 防御型状态机协议 (Idempotent 3-Part State Loop)
-- 采用 `FileName | Sha256 | TargetNode` 三元组幂等键，杜绝重复踹门与循环风暴。
-- 自动识别 `ACK` / `DONE` / `NEEDS_CTO` 等终端回执，闭环任务生命周期。
+### 5. 🛡️ 防御型状态机协议与重试去重
+- 采用三元幂等键降低重复派发风险；针对 `FileSystemWatcher` 的多发事件设计了 `pendingRetryKeys` 互斥集合，彻底避免同一任务重复入队。
+- 自动识别 `ACK` / `DONE` / `NEEDS_CTO` / `NEEDS_HUMAN` 等终端回执，闭环任务生命周期。
 
 ---
 
@@ -84,6 +94,11 @@ bin\CodeAiDispatcher.exe
 build.bat
 ```
 脚本会自动调用系统内置的 `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe` 完成编译，几秒内在 `bin/` 目录下生成全新的 `CodeAiDispatcher.exe`！
+
+> 🔒 **可信分发与校验说明**：  
+> 仓库内随源码打包的 `bin/CodeAiDispatcher.exe` 仅为便于快速开箱体验。  
+> 生产环境建议通过 [GitHub Releases](https://github.com/fionhua/CodeAi-Dispatcher/releases) 下载发布包，或使用 `build.bat` 源码本地审查自编译。  
+> - 本次构建产物 SHA-256: `0e6f3f711d3fec71acdf55b661bcd1d4370b8885be744a6e383d5d0b2aa05802`
 
 ---
 
