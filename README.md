@@ -87,6 +87,26 @@ build.bat
 
 ---
 
+## 🤖 给你的代码 AI：一键自动配置指令 (AI-to-AI Auto Configuration)
+
+> 💡 **给人类用户的提示**：  
+> 你完全不需要手动研究怎么写 JSON 配置！  
+> **请直接将下面引用的这段提示词【一键复制】发给你正在使用的代码 AI（无论是 Claude、Cursor、Copilot、Gemini、Qwen、DeepSeek 还是 Windsurf），它们将自动感知你的开发环境并为你配置妥当：**
+
+```markdown
+你好代码AI！我已经下载了 CodeAi Dispatcher（多代码AI协同调度器）。
+请帮我自动完成本地环境的适配与配置：
+1. 检查我当前机器上正在运行或常用的开发工具（例如 VSCode、Cursor、Windsurf、CLion、Antigravity、WorkBuddy 等）；
+2. 打开本项目根目录下的 `dispatcher_nodes.json`；
+3. 将其中的 `nodes` 列表更新为适合我们当前协作环境的节点配置：
+   - 为我们团队的成员与 AI 助手分别分配战友角色（例如人类指挥官、主程 AI、审阅 CTO 等）；
+   - 正确填入对应 IDE 的进程名称（process_names，如 code, cursor, windsurf）与窗口标题关键字（window_keywords）；
+4. 如果配置有变动，请直接运行根目录下的 `build.bat` 帮我自动编译出最新的 `bin/CodeAiDispatcher.exe`；
+5. 完成后请告诉我如何启动并确认监控协同目录。
+```
+
+---
+
 ## ⚙️ 配置文件说明 (`dispatcher_nodes.json`)
 
 本文件与可执行文件同级或置于根目录：
