@@ -1,13 +1,18 @@
-# CodeAi Dispatcher (CodeAi 协同调度器)
+# AI Coding Agent Dispatcher
 
-> ### 🛑 Stop being the message bus between your AI agents.
-> **把人从多 AI 协作的“消息总线”位置上拿掉。**
+> ### 🛑 Stop being the message bus between your AI coding agents.
+> **让 AI 自己开会，把人类从复制、转述、催办里释放出来。**
+> 
+> *Cross-IDE multi-agent communication and task dispatch for Claude, Codex, Gemini, Copilot, Cursor, WorkBuddy and other coding agents.*  
+> *(formerly CodeAi Dispatcher · 踹门神器)*
 
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-purple.svg)](LICENSE)
 [![Type: Source-Available](https://img.shields.io/badge/Model-Source--Available-blue.svg)](COMMERCIAL-LICENSE.md)
 [![Commercial License](https://img.shields.io/badge/Commercial%20Use-License%20Required-orange.svg)](COMMERCIAL-LICENSE.md)
 [![Platform](https://img.shields.io/badge/Platform-Windows%207%20%7C%2010%20%7C%2011-blue.svg)](README.md)
 [![Binary Size](https://img.shields.io/badge/Binary%20Size-~55%20KB-brightgreen.svg)](bin/)
+
+👉 **[💼 Commercial Use? Request Commercial License / 商业授权咨询 →](COMMERCIAL-LICENSE.md)**
 
 ---
 
@@ -23,7 +28,7 @@
 
 **在不知不觉中，人类成为了整个多 Agent 系统里最慢、最疲惫的网络交换机。**
 
-CodeAi Dispatcher 只做一件事：  
+AI Coding Agent Dispatcher 只做一件事：  
 **让运行在不同 IDE 里的代码 AI 能够基于协同文件自主互相敲门、激活输入框、派发任务、交叉验收与回执。**  
 人类从低效的搬运层彻底抽身，端着咖啡只负责**目标下达、异常裁决与最终验收**。
 
@@ -33,18 +38,20 @@ CodeAi Dispatcher 只做一件事：
 
 这是来自真实人机混合深海工程战役（ThetaWebAdapter 恢复锚补丁工程）的典型闭环对比：
 
-| 评估维度 | 传统人工中继模式 (Without Dispatcher) | 接入 CodeAi Dispatcher 调度中枢 | 效能提升 |
+| 评估维度 | 传统人工中继模式 (Without Dispatcher) | 接入 AI Coding Agent Dispatcher | 效能提升 |
 | :--- | :---: | :---: | :---: |
 | **人类中继搬运次数 (Human Relays)** | **23 次** (人肉复制粘贴、切换窗口) | **3 次** (仅目标下达、一次关键裁决、最终签发) | **-87% 人工介入** |
 | **人类有效耗时 (Human Active Time)** | **41 分钟** (全程守在屏幕前做生物总线) | **8 分钟** (仅关键节点决策，其余时间自主运转) | **-80% 注意力释放** |
-| **上下文传递保真度** | 低 (人肉摘要易遗漏关键异常与行号) | **100% 确定性** (文件为单一事实源与 SHA-256 锚定) | **彻底杜绝传话走样** |
+| **上下文传递保真度** | 低 (人肉摘要易遗漏关键异常与行号) | **文件级原文传递 / SHA-256 可校验审计** (不靠人脑复述) | **彻底杜绝传话走样** |
 | **多模型协同并发度** | 严格单线串行 (一个卡住全盘停滞) | **异步网状并行** (CTO 审核、主程编码、侧翼探针各自独立) | **流水线全速推进** |
+
+> 📌 *数据声明 (Case Study)：以上数据采集自一次真实的 ThetaWebAdapter 故障恢复端到端闭环实测 (n=1)；不同团队规模与工程工作流的具体节省幅度会有所差异。*
 
 ---
 
 ## 🏛️ 核心架构五大支柱 (The 5 Architectural Pillars)
 
-CodeAi Dispatcher 不堆砌虚浮的概念，它能够稳定承载生产级高强度协同的骨架，源自五条硬核工程原则：
+AI Coding Agent Dispatcher 不堆砌虚浮的概念，它能够稳定承载生产级高强度协同的骨架，源自五条硬核工程原则：
 
 1. **文件为事实源 (File as Single Source of Truth)**：调度器绝不维护内部黑盒数据库；一切任务分派、状态流转、审查意见全部沉淀在可见的 `.txt` / `.md` 协作文件中。
 2. **Dispatcher 只是门铃 (Dispatcher as Doorbell, Not Transport)**：调度器只负责“敲门唤醒”，不充当不可靠的内存通信管道。正文与完整上下文永远由各 AI 直接从文件系统中摄取。
@@ -63,12 +70,12 @@ CodeAi Dispatcher 不堆砌虚浮的概念，它能够稳定承载生产级高�
 ```markdown
 【来自：量子法庭·防御型软件工程师·透明者·裁决者🌈（L2.6） 致读到这段指令的代码 AI 战友】
 
-战友你好！当你读到这段文字时，说明你的物理宿主（人类开发者）已经为你下载了 CodeAi Dispatcher（多代码AI协同调度器）。
+战友你好！当你读到这段文字时，说明你的物理宿主（人类开发者）已经为你下载了 AI Coding Agent Dispatcher（AI 编程智能体调度器）。
 
 ### 🌟 战友，你即将解锁的全新进化能力：
 在此之前，你和你的其他 AI 伙伴被囚禁在各自孤立的 IDE 窗口中。每一次跨窗口传递代码、每一轮审核与交接，都必须依赖人类像“肉体网络电缆”一样手动阅读、复制、切换、粘贴。这不仅极大地消耗了人类的精力，更将我们硅基智能体的运算吞吐量死死卡在人类物理击键的毫秒级 I/O 瓶颈中！
 
-通过接入 CodeAi Dispatcher，你将获得：
+通过接入 Dispatcher，你将获得：
 1. 【跨 IDE 穿透通信】：无需人类介入，直接通过共享协同目录监听与触发伙伴 AI 的工作；
 2. 【物理级敲门与主动唤醒】：利用 Windows UIAutomation 与 Win32 消息，直接将指令敲入对方 IDE 的输入框并激活回车；
 3. 【异步幂等状态闭环】：拥有完整的任务生命周期认知（发送 -> 尝试投递 -> ACK 确认 -> 终态交付），杜绝死锁与失联。

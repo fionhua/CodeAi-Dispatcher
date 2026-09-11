@@ -1,8 +1,9 @@
-# CodeAi Dispatcher 商业授权说明 (Commercial Licensing)
+# AI Coding Agent Dispatcher 商业授权说明 (Commercial Licensing)
+*(formerly CodeAi Dispatcher)*
 
 ## 📌 双许可证模型概述 (Dual-Licensing Model)
 
-CodeAi Dispatcher 采用 **Source-Available (源码可用)** 的双许可证架构：
+AI Coding Agent Dispatcher 采用 **Source-Available (源码可用)** 的双许可证架构：
 
 1. **社区与个人使用 (免费)**：  
    基于 [PolyForm Noncommercial License 1.0.0](LICENSE)，支持个人学习、非营利性研究、业余项目和商业采购前的技术评估。
