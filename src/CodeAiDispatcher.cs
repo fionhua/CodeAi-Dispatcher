@@ -847,13 +847,42 @@ namespace CodeAiTools
             lblChecklistSummary.AutoSize = true;
             pnlCheckTools.Controls.Add(lblChecklistSummary);
 
+            Button btnCheckSelectAll = new Button();
+            btnCheckSelectAll.Text = "全选";
+            btnCheckSelectAll.Size = new Size(46, 22);
+            btnCheckSelectAll.Location = new Point(pnlCheckTools.Width - 312, 5);
+            btnCheckSelectAll.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnCheckSelectAll.FlatStyle = FlatStyle.Flat;
+            btnCheckSelectAll.BackColor = Color.FromArgb(49, 50, 68);
+            btnCheckSelectAll.FlatAppearance.BorderSize = 0;
+            btnCheckSelectAll.ForeColor = Color.FromArgb(205, 214, 244);
+            btnCheckSelectAll.Font = new Font("Segoe UI", 7.5f);
+            btnCheckSelectAll.Cursor = Cursors.Hand;
+            btnCheckSelectAll.Click += (s, e) => { SelectAllChecklistRows(); };
+            pnlCheckTools.Controls.Add(btnCheckSelectAll);
+
+            Button btnCheckDelete = new Button();
+            btnCheckDelete.Text = "删除";
+            btnCheckDelete.Size = new Size(46, 22);
+            btnCheckDelete.Location = new Point(pnlCheckTools.Width - 262, 5);
+            btnCheckDelete.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnCheckDelete.FlatStyle = FlatStyle.Flat;
+            btnCheckDelete.BackColor = Color.FromArgb(69, 40, 55);
+            btnCheckDelete.FlatAppearance.BorderSize = 0;
+            btnCheckDelete.ForeColor = Color.FromArgb(243, 139, 168);
+            btnCheckDelete.Font = new Font("Segoe UI", 7.5f);
+            btnCheckDelete.Cursor = Cursors.Hand;
+            btnCheckDelete.Click += (s, e) => { DeleteSelectedChecklistRows(); };
+            pnlCheckTools.Controls.Add(btnCheckDelete);
+
             Button btnOpenChecklistFile = new Button();
-            btnOpenChecklistFile.Text = "📂 打开 CHECKLIST.md";
-            btnOpenChecklistFile.Size = new Size(150, 24);
-            btnOpenChecklistFile.Location = new Point(pnlCheckTools.Width - 216, 4);
+            btnOpenChecklistFile.Text = "📂 打开事实源";
+            btnOpenChecklistFile.Size = new Size(130, 22);
+            btnOpenChecklistFile.Location = new Point(pnlCheckTools.Width - 212, 5);
             btnOpenChecklistFile.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnOpenChecklistFile.FlatStyle = FlatStyle.Flat;
             btnOpenChecklistFile.BackColor = Color.FromArgb(49, 50, 68);
+            btnOpenChecklistFile.FlatAppearance.BorderSize = 0;
             btnOpenChecklistFile.ForeColor = Color.FromArgb(205, 214, 244);
             btnOpenChecklistFile.Font = new Font("Segoe UI", 7.8f);
             btnOpenChecklistFile.Cursor = Cursors.Hand;
@@ -862,11 +891,12 @@ namespace CodeAiTools
 
             Button btnRefreshChecklist = new Button();
             btnRefreshChecklist.Text = "🔄 刷新";
-            btnRefreshChecklist.Size = new Size(58, 24);
-            btnRefreshChecklist.Location = new Point(pnlCheckTools.Width - 62, 4);
+            btnRefreshChecklist.Size = new Size(58, 22);
+            btnRefreshChecklist.Location = new Point(pnlCheckTools.Width - 78, 5);
             btnRefreshChecklist.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnRefreshChecklist.FlatStyle = FlatStyle.Flat;
             btnRefreshChecklist.BackColor = Color.FromArgb(49, 50, 68);
+            btnRefreshChecklist.FlatAppearance.BorderSize = 0;
             btnRefreshChecklist.ForeColor = Color.FromArgb(205, 214, 244);
             btnRefreshChecklist.Font = new Font("Segoe UI", 7.8f);
             btnRefreshChecklist.Cursor = Cursors.Hand;
@@ -890,7 +920,7 @@ namespace CodeAiTools
             gridChecklist.AllowUserToResizeRows = false;
             gridChecklist.ReadOnly = true;
             gridChecklist.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            gridChecklist.MultiSelect = false;
+            gridChecklist.MultiSelect = true;
             gridChecklist.Font = new Font("Segoe UI", 8.5f);
             gridChecklist.RowTemplate.Height = 26;
 
@@ -910,8 +940,51 @@ namespace CodeAiTools
 
             gridChecklist.CellDoubleClick += (s, e) => { OpenChecklistFile(); };
 
+            // 右键菜单: 全选, 打开事实源, 复制内容, 删除所选项
+            ContextMenuStrip menuChecklist = new ContextMenuStrip();
+            menuChecklist.BackColor = Color.FromArgb(30, 30, 46);
+            menuChecklist.ForeColor = Color.FromArgb(205, 214, 244);
+            menuChecklist.ShowImageMargin = false;
+
+            ToolStripMenuItem miCheckAll = new ToolStripMenuItem("全选 (&A)");
+            miCheckAll.ForeColor = Color.FromArgb(205, 214, 244);
+            miCheckAll.Click += (s, e) => { SelectAllChecklistRows(); };
+
+            ToolStripMenuItem miCheckOpen = new ToolStripMenuItem("打开事实源 CHECKLIST.md (&O)");
+            miCheckOpen.ForeColor = Color.FromArgb(137, 180, 250);
+            miCheckOpen.Click += (s, e) => { OpenChecklistFile(); };
+
+            ToolStripMenuItem miCheckDelete = new ToolStripMenuItem("删除所选条目 (&D)");
+            miCheckDelete.ForeColor = Color.FromArgb(243, 139, 168);
+            miCheckDelete.Click += (s, e) => { DeleteSelectedChecklistRows(); };
+
+            menuChecklist.Items.Add(miCheckAll);
+            menuChecklist.Items.Add(miCheckOpen);
+            menuChecklist.Items.Add(new ToolStripSeparator());
+            menuChecklist.Items.Add(miCheckDelete);
+            gridChecklist.ContextMenuStrip = menuChecklist;
+
+            gridChecklist.KeyDown += (s, e) =>
+            {
+                if (e.Control && e.KeyCode == Keys.A)
+                {
+                    SelectAllChecklistRows();
+                    e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.Delete)
+                {
+                    DeleteSelectedChecklistRows();
+                    e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.Enter)
+                {
+                    OpenChecklistFile();
+                    e.Handled = true;
+                }
+            };
+
             Label lblChecklistTip = new Label();
-            lblChecklistTip.Text = "💡 双击任意任务条目直接打开并编辑 CHECKLIST.md，文件才是事实源";
+            lblChecklistTip.Text = "💡 支持鼠标拖选/多选 | 右键菜单管理 | 双击条目直接打开 CHECKLIST.md 事实源";
             lblChecklistTip.Dock = DockStyle.Bottom;
             lblChecklistTip.Height = 22;
             lblChecklistTip.Font = new Font("Microsoft YaHei UI", 7.8f);
@@ -942,13 +1015,42 @@ namespace CodeAiTools
             lblMeetingsSummary.AutoSize = true;
             pnlMeetTools.Controls.Add(lblMeetingsSummary);
 
+            Button btnMeetSelectAll = new Button();
+            btnMeetSelectAll.Text = "全选";
+            btnMeetSelectAll.Size = new Size(46, 22);
+            btnMeetSelectAll.Location = new Point(pnlMeetTools.Width - 322, 5);
+            btnMeetSelectAll.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnMeetSelectAll.FlatStyle = FlatStyle.Flat;
+            btnMeetSelectAll.BackColor = Color.FromArgb(49, 50, 68);
+            btnMeetSelectAll.FlatAppearance.BorderSize = 0;
+            btnMeetSelectAll.ForeColor = Color.FromArgb(205, 214, 244);
+            btnMeetSelectAll.Font = new Font("Segoe UI", 7.5f);
+            btnMeetSelectAll.Cursor = Cursors.Hand;
+            btnMeetSelectAll.Click += (s, e) => { SelectAllMeetingRows(); };
+            pnlMeetTools.Controls.Add(btnMeetSelectAll);
+
+            Button btnMeetDelete = new Button();
+            btnMeetDelete.Text = "删除";
+            btnMeetDelete.Size = new Size(46, 22);
+            btnMeetDelete.Location = new Point(pnlMeetTools.Width - 272, 5);
+            btnMeetDelete.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnMeetDelete.FlatStyle = FlatStyle.Flat;
+            btnMeetDelete.BackColor = Color.FromArgb(69, 40, 55);
+            btnMeetDelete.FlatAppearance.BorderSize = 0;
+            btnMeetDelete.ForeColor = Color.FromArgb(243, 139, 168);
+            btnMeetDelete.Font = new Font("Segoe UI", 7.5f);
+            btnMeetDelete.Cursor = Cursors.Hand;
+            btnMeetDelete.Click += (s, e) => { DeleteSelectedMeetingRows(); };
+            pnlMeetTools.Controls.Add(btnMeetDelete);
+
             Button btnOpenMeetDir = new Button();
-            btnOpenMeetDir.Text = "📂 打开会议室目录";
-            btnOpenMeetDir.Size = new Size(130, 24);
-            btnOpenMeetDir.Location = new Point(pnlMeetTools.Width - 196, 4);
+            btnOpenMeetDir.Text = "📂 打开会议室";
+            btnOpenMeetDir.Size = new Size(110, 22);
+            btnOpenMeetDir.Location = new Point(pnlMeetTools.Width - 222, 5);
             btnOpenMeetDir.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnOpenMeetDir.FlatStyle = FlatStyle.Flat;
             btnOpenMeetDir.BackColor = Color.FromArgb(49, 50, 68);
+            btnOpenMeetDir.FlatAppearance.BorderSize = 0;
             btnOpenMeetDir.ForeColor = Color.FromArgb(205, 214, 244);
             btnOpenMeetDir.Font = new Font("Segoe UI", 7.8f);
             btnOpenMeetDir.Cursor = Cursors.Hand;
@@ -957,11 +1059,12 @@ namespace CodeAiTools
 
             Button btnRefreshMeetings = new Button();
             btnRefreshMeetings.Text = "🔄 刷新";
-            btnRefreshMeetings.Size = new Size(58, 24);
-            btnRefreshMeetings.Location = new Point(pnlMeetTools.Width - 62, 4);
+            btnRefreshMeetings.Size = new Size(58, 22);
+            btnRefreshMeetings.Location = new Point(pnlMeetTools.Width - 108, 5);
             btnRefreshMeetings.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnRefreshMeetings.FlatStyle = FlatStyle.Flat;
             btnRefreshMeetings.BackColor = Color.FromArgb(49, 50, 68);
+            btnRefreshMeetings.FlatAppearance.BorderSize = 0;
             btnRefreshMeetings.ForeColor = Color.FromArgb(205, 214, 244);
             btnRefreshMeetings.Font = new Font("Segoe UI", 7.8f);
             btnRefreshMeetings.Cursor = Cursors.Hand;
@@ -985,7 +1088,7 @@ namespace CodeAiTools
             gridMeetings.AllowUserToResizeRows = false;
             gridMeetings.ReadOnly = true;
             gridMeetings.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            gridMeetings.MultiSelect = false;
+            gridMeetings.MultiSelect = true;
             gridMeetings.Font = new Font("Segoe UI", 8.2f);
             gridMeetings.RowTemplate.Height = 24;
 
@@ -1009,8 +1112,56 @@ namespace CodeAiTools
 
             gridMeetings.CellDoubleClick += (s, e) => { OpenSelectedMeetingFile(); };
 
+            // 右键菜单: 全选, 打开信件原件, 打开所在目录, 删除所选信件
+            ContextMenuStrip menuMeetings = new ContextMenuStrip();
+            menuMeetings.BackColor = Color.FromArgb(30, 30, 46);
+            menuMeetings.ForeColor = Color.FromArgb(205, 214, 244);
+            menuMeetings.ShowImageMargin = false;
+
+            ToolStripMenuItem miMeetAll = new ToolStripMenuItem("全选 (&A)");
+            miMeetAll.ForeColor = Color.FromArgb(205, 214, 244);
+            miMeetAll.Click += (s, e) => { SelectAllMeetingRows(); };
+
+            ToolStripMenuItem miMeetOpen = new ToolStripMenuItem("打开会议信件原件 (&O)");
+            miMeetOpen.ForeColor = Color.FromArgb(137, 180, 250);
+            miMeetOpen.Click += (s, e) => { OpenSelectedMeetingFile(); };
+
+            ToolStripMenuItem miMeetDir = new ToolStripMenuItem("打开会议室目录 (&F)");
+            miMeetDir.ForeColor = Color.FromArgb(205, 214, 244);
+            miMeetDir.Click += (s, e) => { OpenMeetingsDirectory(); };
+
+            ToolStripMenuItem miMeetDelete = new ToolStripMenuItem("删除所选信件原件 (&D)");
+            miMeetDelete.ForeColor = Color.FromArgb(243, 139, 168);
+            miMeetDelete.Click += (s, e) => { DeleteSelectedMeetingRows(); };
+
+            menuMeetings.Items.Add(miMeetAll);
+            menuMeetings.Items.Add(miMeetOpen);
+            menuMeetings.Items.Add(miMeetDir);
+            menuMeetings.Items.Add(new ToolStripSeparator());
+            menuMeetings.Items.Add(miMeetDelete);
+            gridMeetings.ContextMenuStrip = menuMeetings;
+
+            gridMeetings.KeyDown += (s, e) =>
+            {
+                if (e.Control && e.KeyCode == Keys.A)
+                {
+                    SelectAllMeetingRows();
+                    e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.Delete)
+                {
+                    DeleteSelectedMeetingRows();
+                    e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.Enter)
+                {
+                    OpenSelectedMeetingFile();
+                    e.Handled = true;
+                }
+            };
+
             Label lblMeetTip = new Label();
-            lblMeetTip.Text = "💡 双击会议条目直接打开会议原始信件，文件才是事实源";
+            lblMeetTip.Text = "💡 支持鼠标拖选/多选 | 右键菜单操作 | 双击会议条目直接打开会议原始信件，文件才是事实源";
             lblMeetTip.Dock = DockStyle.Bottom;
             lblMeetTip.Height = 22;
             lblMeetTip.Font = new Font("Microsoft YaHei UI", 7.8f);
@@ -1284,6 +1435,38 @@ namespace CodeAiTools
             gridDeliveries.Columns["colStage"].Width = 145;
             gridDeliveries.Columns.Add("colFile", "事项 / 文件");
             gridDeliveries.Columns["colFile"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+
+            ContextMenuStrip gridContextMenu = new ContextMenuStrip();
+            gridContextMenu.BackColor = Color.FromArgb(30, 30, 46);
+            gridContextMenu.ForeColor = Color.FromArgb(205, 214, 244);
+            gridContextMenu.ShowImageMargin = false;
+
+            ToolStripMenuItem menuSelectAll = new ToolStripMenuItem("全选 (&A)");
+            menuSelectAll.ForeColor = Color.FromArgb(205, 214, 244);
+            menuSelectAll.Click += (s, e) => { SelectAllDeliveryRows(); };
+
+            ToolStripMenuItem menuDelete = new ToolStripMenuItem("删除所选流水 (&D)");
+            menuDelete.ForeColor = Color.FromArgb(243, 139, 168);
+            menuDelete.Click += (s, e) => { DeleteSelectedDeliveryRows(); };
+
+            gridContextMenu.Items.Add(menuSelectAll);
+            gridContextMenu.Items.Add(new ToolStripSeparator());
+            gridContextMenu.Items.Add(menuDelete);
+            gridDeliveries.ContextMenuStrip = gridContextMenu;
+
+            gridDeliveries.KeyDown += (s, e) =>
+            {
+                if (e.Control && e.KeyCode == Keys.A)
+                {
+                    SelectAllDeliveryRows();
+                    e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.Delete)
+                {
+                    DeleteSelectedDeliveryRows();
+                    e.Handled = true;
+                }
+            };
 
             pnlDeliveries.Controls.Add(gridDeliveries);
             pageConsole.Controls.Add(pnlDeliveries);
@@ -1877,6 +2060,117 @@ namespace CodeAiTools
                 }
             }
             catch { }
+        }
+
+        
+        // ====================================================================
+        // Grid Multi-Select, Context Menu & Deletion Actions
+        // ====================================================================
+
+        private void SelectAllChecklistRows()
+        {
+            if (gridChecklist == null) return;
+            foreach (DataGridViewRow row in gridChecklist.Rows)
+            {
+                row.Selected = true;
+            }
+        }
+
+        private void DeleteSelectedChecklistRows()
+        {
+            if (gridChecklist == null || gridChecklist.SelectedRows.Count == 0) return;
+
+            DialogResult dr = MessageBox.Show(
+                this,
+                string.Format("确定要删除选中的 {0} 项任务条目吗？\n此操作将直接同步更新 CHECKLIST.md 事实源文件。", gridChecklist.SelectedRows.Count),
+                "确认删除任务",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question
+            );
+            if (dr != DialogResult.Yes) return;
+
+            try
+            {
+                HashSet<string> linesToRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (DataGridViewRow row in gridChecklist.SelectedRows)
+                {
+                    ChecklistItem item = row.Tag as ChecklistItem;
+                    if (item != null && !string.IsNullOrEmpty(item.OriginalLine))
+                    {
+                        linesToRemove.Add(item.OriginalLine.Trim());
+                    }
+                }
+
+                string checklistPath = Path.Combine(warRoomRootDir, "Mission", "CHECKLIST.md");
+                if (File.Exists(checklistPath))
+                {
+                    string[] allLines = File.ReadAllLines(checklistPath, Encoding.UTF8);
+                    List<string> remainingLines = new List<string>();
+                    foreach (string line in allLines)
+                    {
+                        if (!linesToRemove.Contains(line.Trim()))
+                        {
+                            remainingLines.Add(line);
+                        }
+                    }
+                    File.WriteAllLines(checklistPath, remainingLines.ToArray(), Encoding.UTF8);
+                }
+
+                ReloadChecklistFromDisk();
+                LogAudit("CHECKLIST_DELETED", string.Format("Deleted {0} checklist items by Human.", linesToRemove.Count));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "删除任务异常: " + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void SelectAllMeetingRows()
+        {
+            if (gridMeetings == null) return;
+            foreach (DataGridViewRow row in gridMeetings.Rows)
+            {
+                row.Selected = true;
+            }
+        }
+
+        private void DeleteSelectedMeetingRows()
+        {
+            if (gridMeetings == null || gridMeetings.SelectedRows.Count == 0) return;
+
+            DialogResult dr = MessageBox.Show(
+                this,
+                string.Format("确定要删除选中的 {0} 篇会议文件原件吗？\n对应文件将直接从磁盘物理删除。", gridMeetings.SelectedRows.Count),
+                "确认删除会议信件",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning
+            );
+            if (dr != DialogResult.Yes) return;
+
+            try
+            {
+                int deletedCount = 0;
+                foreach (DataGridViewRow row in gridMeetings.SelectedRows)
+                {
+                    MeetingRowItem item = row.Tag as MeetingRowItem;
+                    if (item != null && !string.IsNullOrEmpty(item.FilePath) && File.Exists(item.FilePath))
+                    {
+                        try
+                        {
+                            File.Delete(item.FilePath);
+                            deletedCount++;
+                        }
+                        catch { }
+                    }
+                }
+
+                ReloadMeetingsFromDisk();
+                LogAudit("MEETINGS_DELETED", string.Format("Deleted {0} meeting files by Human.", deletedCount));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "删除会议文件异常: " + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void OpenChecklistFile()

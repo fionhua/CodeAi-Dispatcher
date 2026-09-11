@@ -511,6 +511,27 @@ Agent-B +2000
         self.assertNotEqual(prod_r, test_r, "运行态目录（状态文件、投递流水、审计日志）必须完全物理隔离！")
         self.assertNotEqual(prod_m, test_m, "会议室目录必须完全隔离，测试信件绝不能流入正式会议目录！")
 
+    def test_grid_multiselect_and_context_menu_contract(self):
+        """验证所有核心表格均开启 MultiSelect 并具备右键菜单与删除全选绑定"""
+        with open("src/CodeAiDispatcher.cs", "r", encoding="utf-8") as f:
+            source = f.read()
+
+        # 验证 gridChecklist
+        self.assertIn("gridChecklist.MultiSelect = true;", source)
+        self.assertIn("gridChecklist.ContextMenuStrip = menuChecklist;", source)
+        self.assertIn("DeleteSelectedChecklistRows()", source)
+        self.assertIn("SelectAllChecklistRows()", source)
+
+        # 验证 gridMeetings
+        self.assertIn("gridMeetings.MultiSelect = true;", source)
+        self.assertIn("gridMeetings.ContextMenuStrip = menuMeetings;", source)
+        self.assertIn("DeleteSelectedMeetingRows()", source)
+        self.assertIn("SelectAllMeetingRows()", source)
+
+        # 验证 gridDeliveries
+        self.assertIn("gridDeliveries.MultiSelect = true;", source)
+        self.assertIn("gridDeliveries.ContextMenuStrip = gridContextMenu;", source)
+
 
 if __name__ == "__main__":
     unittest.main()
