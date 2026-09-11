@@ -133,8 +133,8 @@ namespace CodeAiTools
             };
             Label lblSub = new Label
             {
-                Text = "只需确认领衔 CTO 与 War Room 根目录，零配置开箱即可启航协作网络",
-                Font = new Font("Microsoft YaHei UI", 8.5F),
+                Text = string.Format("程序位置: {0} | 确认后建立规范物理事实源空间", AppDomain.CurrentDomain.BaseDirectory),
+                Font = new Font("Microsoft YaHei UI", 8.2F),
                 ForeColor = Color.FromArgb(166, 173, 200),
                 Location = new Point(18, 38),
                 AutoSize = true
@@ -850,7 +850,7 @@ namespace CodeAiTools
             Button btnCheckSelectAll = new Button();
             btnCheckSelectAll.Text = "全选";
             btnCheckSelectAll.Size = new Size(46, 22);
-            btnCheckSelectAll.Location = new Point(pnlCheckTools.Width - 312, 5);
+            btnCheckSelectAll.Location = new Point(pnlCheckTools.Width - 330, 5);
             btnCheckSelectAll.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnCheckSelectAll.FlatStyle = FlatStyle.Flat;
             btnCheckSelectAll.BackColor = Color.FromArgb(49, 50, 68);
@@ -862,9 +862,9 @@ namespace CodeAiTools
             pnlCheckTools.Controls.Add(btnCheckSelectAll);
 
             Button btnCheckDelete = new Button();
-            btnCheckDelete.Text = "删除";
-            btnCheckDelete.Size = new Size(46, 22);
-            btnCheckDelete.Location = new Point(pnlCheckTools.Width - 262, 5);
+            btnCheckDelete.Text = "删除/归档";
+            btnCheckDelete.Size = new Size(68, 22);
+            btnCheckDelete.Location = new Point(pnlCheckTools.Width - 280, 5);
             btnCheckDelete.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnCheckDelete.FlatStyle = FlatStyle.Flat;
             btnCheckDelete.BackColor = Color.FromArgb(69, 40, 55);
@@ -877,8 +877,8 @@ namespace CodeAiTools
 
             Button btnOpenChecklistFile = new Button();
             btnOpenChecklistFile.Text = "📂 打开事实源";
-            btnOpenChecklistFile.Size = new Size(130, 22);
-            btnOpenChecklistFile.Location = new Point(pnlCheckTools.Width - 212, 5);
+            btnOpenChecklistFile.Size = new Size(126, 22);
+            btnOpenChecklistFile.Location = new Point(pnlCheckTools.Width - 208, 5);
             btnOpenChecklistFile.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnOpenChecklistFile.FlatStyle = FlatStyle.Flat;
             btnOpenChecklistFile.BackColor = Color.FromArgb(49, 50, 68);
@@ -940,7 +940,20 @@ namespace CodeAiTools
 
             gridChecklist.CellDoubleClick += (s, e) => { OpenChecklistFile(); };
 
-            // 右键菜单: 全选, 打开事实源, 复制内容, 删除所选项
+            // 右键单击自动选中当前行
+            gridChecklist.CellMouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
+                {
+                    if (!gridChecklist.Rows[e.RowIndex].Selected)
+                    {
+                        gridChecklist.ClearSelection();
+                        gridChecklist.Rows[e.RowIndex].Selected = true;
+                    }
+                }
+            };
+
+            // 右键菜单: 全选, 打开事实源, 删除/安全归档条目
             ContextMenuStrip menuChecklist = new ContextMenuStrip();
             menuChecklist.BackColor = Color.FromArgb(30, 30, 46);
             menuChecklist.ForeColor = Color.FromArgb(205, 214, 244);
@@ -954,7 +967,7 @@ namespace CodeAiTools
             miCheckOpen.ForeColor = Color.FromArgb(137, 180, 250);
             miCheckOpen.Click += (s, e) => { OpenChecklistFile(); };
 
-            ToolStripMenuItem miCheckDelete = new ToolStripMenuItem("删除所选条目 (&D)");
+            ToolStripMenuItem miCheckDelete = new ToolStripMenuItem("删除 / 安全归档条目 (&D)");
             miCheckDelete.ForeColor = Color.FromArgb(243, 139, 168);
             miCheckDelete.Click += (s, e) => { DeleteSelectedChecklistRows(); };
 
@@ -1018,7 +1031,7 @@ namespace CodeAiTools
             Button btnMeetSelectAll = new Button();
             btnMeetSelectAll.Text = "全选";
             btnMeetSelectAll.Size = new Size(46, 22);
-            btnMeetSelectAll.Location = new Point(pnlMeetTools.Width - 322, 5);
+            btnMeetSelectAll.Location = new Point(pnlMeetTools.Width - 330, 5);
             btnMeetSelectAll.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnMeetSelectAll.FlatStyle = FlatStyle.Flat;
             btnMeetSelectAll.BackColor = Color.FromArgb(49, 50, 68);
@@ -1030,9 +1043,9 @@ namespace CodeAiTools
             pnlMeetTools.Controls.Add(btnMeetSelectAll);
 
             Button btnMeetDelete = new Button();
-            btnMeetDelete.Text = "删除";
-            btnMeetDelete.Size = new Size(46, 22);
-            btnMeetDelete.Location = new Point(pnlMeetTools.Width - 272, 5);
+            btnMeetDelete.Text = "删除/回收";
+            btnMeetDelete.Size = new Size(68, 22);
+            btnMeetDelete.Location = new Point(pnlMeetTools.Width - 280, 5);
             btnMeetDelete.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnMeetDelete.FlatStyle = FlatStyle.Flat;
             btnMeetDelete.BackColor = Color.FromArgb(69, 40, 55);
@@ -1045,8 +1058,8 @@ namespace CodeAiTools
 
             Button btnOpenMeetDir = new Button();
             btnOpenMeetDir.Text = "📂 打开会议室";
-            btnOpenMeetDir.Size = new Size(110, 22);
-            btnOpenMeetDir.Location = new Point(pnlMeetTools.Width - 222, 5);
+            btnOpenMeetDir.Size = new Size(126, 22);
+            btnOpenMeetDir.Location = new Point(pnlMeetTools.Width - 208, 5);
             btnOpenMeetDir.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnOpenMeetDir.FlatStyle = FlatStyle.Flat;
             btnOpenMeetDir.BackColor = Color.FromArgb(49, 50, 68);
@@ -1060,7 +1073,7 @@ namespace CodeAiTools
             Button btnRefreshMeetings = new Button();
             btnRefreshMeetings.Text = "🔄 刷新";
             btnRefreshMeetings.Size = new Size(58, 22);
-            btnRefreshMeetings.Location = new Point(pnlMeetTools.Width - 108, 5);
+            btnRefreshMeetings.Location = new Point(pnlMeetTools.Width - 78, 5);
             btnRefreshMeetings.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnRefreshMeetings.FlatStyle = FlatStyle.Flat;
             btnRefreshMeetings.BackColor = Color.FromArgb(49, 50, 68);
@@ -1112,7 +1125,20 @@ namespace CodeAiTools
 
             gridMeetings.CellDoubleClick += (s, e) => { OpenSelectedMeetingFile(); };
 
-            // 右键菜单: 全选, 打开信件原件, 打开所在目录, 删除所选信件
+            // 右键单击自动选中当前行
+            gridMeetings.CellMouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
+                {
+                    if (!gridMeetings.Rows[e.RowIndex].Selected)
+                    {
+                        gridMeetings.ClearSelection();
+                        gridMeetings.Rows[e.RowIndex].Selected = true;
+                    }
+                }
+            };
+
+            // 右键菜单: 全选, 打开信件原件, 打开所在目录, 删除/移入回收站
             ContextMenuStrip menuMeetings = new ContextMenuStrip();
             menuMeetings.BackColor = Color.FromArgb(30, 30, 46);
             menuMeetings.ForeColor = Color.FromArgb(205, 214, 244);
@@ -1130,7 +1156,7 @@ namespace CodeAiTools
             miMeetDir.ForeColor = Color.FromArgb(205, 214, 244);
             miMeetDir.Click += (s, e) => { OpenMeetingsDirectory(); };
 
-            ToolStripMenuItem miMeetDelete = new ToolStripMenuItem("删除所选信件原件 (&D)");
+            ToolStripMenuItem miMeetDelete = new ToolStripMenuItem("删除 / 移入回收站 (&D)");
             miMeetDelete.ForeColor = Color.FromArgb(243, 139, 168);
             miMeetDelete.Click += (s, e) => { DeleteSelectedMeetingRows(); };
 
@@ -1435,6 +1461,19 @@ namespace CodeAiTools
             gridDeliveries.Columns["colStage"].Width = 145;
             gridDeliveries.Columns.Add("colFile", "事项 / 文件");
             gridDeliveries.Columns["colFile"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+
+            // 右键单击自动选中当前行
+            gridDeliveries.CellMouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
+                {
+                    if (!gridDeliveries.Rows[e.RowIndex].Selected)
+                    {
+                        gridDeliveries.ClearSelection();
+                        gridDeliveries.Rows[e.RowIndex].Selected = true;
+                    }
+                }
+            };
 
             ContextMenuStrip gridContextMenu = new ContextMenuStrip();
             gridContextMenu.BackColor = Color.FromArgb(30, 30, 46);
@@ -1970,23 +2009,13 @@ namespace CodeAiTools
         {
             try
             {
-                List<string> dirsToScan = new List<string>();
-                if (!string.IsNullOrEmpty(warRoomRootDir))
-                {
-                    string wmDir = Path.Combine(warRoomRootDir, "Meetings");
-                    if (Directory.Exists(wmDir)) dirsToScan.Add(wmDir);
-                }
-                if (!string.IsNullOrEmpty(meetingDir) && Directory.Exists(meetingDir) && !dirsToScan.Contains(meetingDir))
-                {
-                    dirsToScan.Add(meetingDir);
-                }
-
+                // P0-1: 严格单一事实源，仅扫描 canonical meetingDir
                 List<MeetingRowItem> items = new List<MeetingRowItem>();
                 Regex r = new Regex(@"^(\d{14})·协作·([^·]+)to([^·]+)·(.*)\.(txt|md)$");
 
-                foreach (string d in dirsToScan)
+                if (!string.IsNullOrEmpty(meetingDir) && Directory.Exists(meetingDir))
                 {
-                    string[] files = Directory.GetFiles(d, "*.*");
+                    string[] files = Directory.GetFiles(meetingDir, "*.*");
                     foreach (string f in files)
                     {
                         string fname = Path.GetFileName(f);
@@ -2029,7 +2058,7 @@ namespace CodeAiTools
 
                 if (lblMeetingsSummary != null)
                 {
-                    lblMeetingsSummary.Text = string.Format("会议动态: 索引共 {0} 篇真实信件 (双击打开原件)", items.Count);
+                    lblMeetingsSummary.Text = string.Format("事实源 [{0}]: 索引共 {1} 篇信件 (双击打开原件)", Path.GetFileName(meetingDir), items.Count);
                 }
 
                 if (gridMeetings != null)
@@ -2078,12 +2107,13 @@ namespace CodeAiTools
 
         private void DeleteSelectedChecklistRows()
         {
+            // P0-2: 严禁永久物理丢失，改为安全归档至 CHECKLIST.md 归档区
             if (gridChecklist == null || gridChecklist.SelectedRows.Count == 0) return;
 
             DialogResult dr = MessageBox.Show(
                 this,
-                string.Format("确定要删除选中的 {0} 项任务条目吗？\n此操作将直接同步更新 CHECKLIST.md 事实源文件。", gridChecklist.SelectedRows.Count),
-                "确认删除任务",
+                string.Format("确定将选中的 {0} 项任务归档吗？\n条目将从当前检查节点移入 CHECKLIST.md 归档记录区，保留完整追溯历史。", gridChecklist.SelectedRows.Count),
+                "确认安全归档任务",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question
             );
@@ -2091,13 +2121,15 @@ namespace CodeAiTools
 
             try
             {
-                HashSet<string> linesToRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                HashSet<string> linesToArchive = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                List<string> archivedLines = new List<string>();
                 foreach (DataGridViewRow row in gridChecklist.SelectedRows)
                 {
                     ChecklistItem item = row.Tag as ChecklistItem;
                     if (item != null && !string.IsNullOrEmpty(item.OriginalLine))
                     {
-                        linesToRemove.Add(item.OriginalLine.Trim());
+                        linesToArchive.Add(item.OriginalLine.Trim());
+                        archivedLines.Add(string.Format("- [ARCHIVED] {0} (归档时间: {1})", item.OriginalLine.TrimStart('-', ' '), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
                     }
                 }
 
@@ -2105,23 +2137,38 @@ namespace CodeAiTools
                 if (File.Exists(checklistPath))
                 {
                     string[] allLines = File.ReadAllLines(checklistPath, Encoding.UTF8);
-                    List<string> remainingLines = new List<string>();
+                    List<string> activeLines = new List<string>();
+                    bool inArchiveSection = false;
+
                     foreach (string line in allLines)
                     {
-                        if (!linesToRemove.Contains(line.Trim()))
+                        if (line.Trim().StartsWith("## 已归档/已放弃任务") || line.Trim().StartsWith("## 变更与调整履历"))
                         {
-                            remainingLines.Add(line);
+                            inArchiveSection = true;
                         }
+
+                        if (!inArchiveSection && linesToArchive.Contains(line.Trim()))
+                        {
+                            // 从当前活动节点中剔除
+                            continue;
+                        }
+                        activeLines.Add(line);
                     }
-                    File.WriteAllLines(checklistPath, remainingLines.ToArray(), Encoding.UTF8);
+
+                    // 追加归档历史
+                    activeLines.Add("");
+                    activeLines.Add("### 人工归档记录 (" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "):");
+                    activeLines.AddRange(archivedLines);
+
+                    File.WriteAllLines(checklistPath, activeLines.ToArray(), Encoding.UTF8);
                 }
 
                 ReloadChecklistFromDisk();
-                LogAudit("CHECKLIST_DELETED", string.Format("Deleted {0} checklist items by Human.", linesToRemove.Count));
+                LogAudit("CHECKLIST_ARCHIVED", string.Format("Safely archived {0} checklist items to history.", linesToArchive.Count));
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "删除任务异常: " + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, "任务安全归档异常: " + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -2136,20 +2183,24 @@ namespace CodeAiTools
 
         private void DeleteSelectedMeetingRows()
         {
+            // P0-2: 严禁直接 File.Delete 物理删除原件！移动至 profile 内 Archive/Trash
             if (gridMeetings == null || gridMeetings.SelectedRows.Count == 0) return;
 
             DialogResult dr = MessageBox.Show(
                 this,
-                string.Format("确定要删除选中的 {0} 篇会议文件原件吗？\n对应文件将直接从磁盘物理删除。", gridMeetings.SelectedRows.Count),
-                "确认删除会议信件",
+                string.Format("确定将选中的 {0} 篇会议信件移至回收归档区吗？\n文件将安全移入 Archive/Trash/ 目录并保留审计记录，严禁物理灭失原件。", gridMeetings.SelectedRows.Count),
+                "确认安全移至回收归档",
                 MessageBoxButtons.YesNo,
-                MessageBoxIcon.Warning
+                MessageBoxIcon.Question
             );
             if (dr != DialogResult.Yes) return;
 
             try
             {
-                int deletedCount = 0;
+                string trashDir = Path.Combine(warRoomRootDir != null ? warRoomRootDir : AppDomain.CurrentDomain.BaseDirectory, "Archive", "Trash");
+                if (!Directory.Exists(trashDir)) Directory.CreateDirectory(trashDir);
+
+                int movedCount = 0;
                 foreach (DataGridViewRow row in gridMeetings.SelectedRows)
                 {
                     MeetingRowItem item = row.Tag as MeetingRowItem;
@@ -2157,19 +2208,22 @@ namespace CodeAiTools
                     {
                         try
                         {
-                            File.Delete(item.FilePath);
-                            deletedCount++;
+                            string destName = string.Format("{0}_{1}", DateTime.Now.ToString("yyyyMMdd_HHmmss"), Path.GetFileName(item.FilePath));
+                            string destPath = Path.Combine(trashDir, destName);
+                            File.Move(item.FilePath, destPath);
+                            movedCount++;
+                            LogAudit("MEETING_ARCHIVED_TO_TRASH", string.Format("Moved {0} -> Archive/Trash/{1}", item.FileName, destName));
                         }
                         catch { }
                     }
                 }
 
                 ReloadMeetingsFromDisk();
-                LogAudit("MEETINGS_DELETED", string.Format("Deleted {0} meeting files by Human.", deletedCount));
+                LogAudit("MEETINGS_TRASH_BATCH_COMPLETED", string.Format("Safely moved {0} meeting files to Archive/Trash.", movedCount));
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "删除会议文件异常: " + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, "信件安全归档异常: " + ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -2398,25 +2452,23 @@ namespace CodeAiTools
 
                 string projectRoot = d != null ? d.FullName : baseDir;
 
-                // 独立会议室路径隔离
+                // P0-1: 规范化单一 Canonical Meeting 事实源绝对路径
                 if (instanceOpts != null && !string.IsNullOrEmpty(instanceOpts.MeetingDir))
                 {
-                    meetingDir = instanceOpts.MeetingDir;
+                    meetingDir = Path.GetFullPath(instanceOpts.MeetingDir);
                 }
                 else if (instanceOpts != null && instanceOpts.IsTestInstance)
                 {
-                    if (!string.IsNullOrEmpty(warRoomRootDir))
-                    {
-                        meetingDir = Path.Combine(warRoomRootDir, "Meetings");
-                    }
-                    else
-                    {
-                        meetingDir = Path.Combine(projectRoot, "AI-War-Room-Test", "Meetings");
-                    }
+                    // TEST 独立事实源
+                    string testRoot = !string.IsNullOrEmpty(warRoomRootDir) 
+                        ? warRoomRootDir 
+                        : Path.Combine(projectRoot, "AI-War-Room-Test");
+                    meetingDir = Path.GetFullPath(Path.Combine(testRoot, "Meetings"));
                 }
                 else
                 {
-                    meetingDir = Path.Combine(projectRoot, "CodeAi", "会议");
+                    // PROD 现役唯一 canonical 事实源
+                    meetingDir = Path.GetFullPath(Path.Combine(projectRoot, "CodeAi", "会议"));
                 }
 
                 // 独立运行态与状态文件隔离
@@ -2445,6 +2497,7 @@ namespace CodeAiTools
                 meetingWatcher.Created += OnMeetingFileEvent;
                 meetingWatcher.Changed += OnMeetingFileEvent;
                 meetingWatcher.EnableRaisingEvents = true;
+                ReloadMeetingsFromDisk();
 
                 LogAudit("WATCHER_INITIALIZED", "Monitoring: " + meetingDir);
             }
@@ -3951,6 +4004,13 @@ namespace CodeAiTools
             bool createdNew;
             using (Mutex mutex = new Mutex(true, mutexName, out createdNew))
             {
+                try
+                {
+                    string bootLog = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "dispatcher_boot.log");
+                    File.AppendAllText(bootLog, string.Format("[{0}] Boot instance={1} port={2} createdNew={3}\n", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), opts.InstanceId, opts.Port, createdNew));
+                }
+                catch { }
+
                 if (!createdNew)
                 {
                     // 已有同端口实例运行，避免端口冲突与重复实例

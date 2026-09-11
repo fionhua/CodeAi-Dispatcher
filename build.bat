@@ -21,7 +21,6 @@ echo [*] Compiling src\CodeAiDispatcher.cs ...
 
 if errorlevel 1 (
     echo [FAIL] Compilation failed.
-    pause
     exit /b 1
 )
 

@@ -532,6 +532,48 @@ Agent-B +2000
         self.assertIn("gridDeliveries.MultiSelect = true;", source)
         self.assertIn("gridDeliveries.ContextMenuStrip = gridContextMenu;", source)
 
+        # 验证右键单击自动选中行机制 (CellMouseDown)
+        self.assertIn("gridChecklist.CellMouseDown +=", source)
+        self.assertIn("gridMeetings.CellMouseDown +=", source)
+        self.assertIn("gridDeliveries.CellMouseDown +=", source)
+
+    def test_p0_single_canonical_meeting_dir_contract(self):
+        """P0-1 验证: 严格单一事实源，禁止多目录混合扫描，确保 canonical meetingDir 唯一性"""
+        with open("src/CodeAiDispatcher.cs", "r", encoding="utf-8") as f:
+            source = f.read()
+
+        # 确保已彻底消除 dirsToScan 双目录扫描
+        self.assertNotIn("dirsToScan", source)
+        # 确保 ReloadMeetingsFromDisk 仅从 meetingDir 扫描
+        self.assertIn("Directory.GetFiles(meetingDir, \"*.*\")", source)
+
+    def test_p0_safe_archive_no_hard_delete_contract(self):
+        """P0-2 验证: 严禁直接 File.Delete 物理灭失原件，必须移入 Archive/Trash 并审计留存"""
+        with open("src/CodeAiDispatcher.cs", "r", encoding="utf-8") as f:
+            source = f.read()
+
+        # 提取 DeleteSelectedMeetingRows 函数体
+        del_meet_start = source.find("void DeleteSelectedMeetingRows()")
+        del_meet_end = source.find("void SelectAllMeetingRows()", del_meet_start)
+        if del_meet_end == -1:
+            del_meet_end = source.find("private void", del_meet_start + 30)
+        del_meet_body = source[del_meet_start:del_meet_end]
+
+        # 严禁在会议删除中调用 File.Delete(
+        self.assertNotIn("File.Delete(", del_meet_body, "P0-2禁止物理删除会议原件！")
+        # 必须使用 File.Move 移入 Archive/Trash
+        self.assertIn("Archive", del_meet_body)
+        self.assertIn("Trash", del_meet_body)
+        self.assertIn("File.Move", del_meet_body)
+
+        # 提取 DeleteSelectedChecklistRows 函数体
+        del_chk_start = source.find("void DeleteSelectedChecklistRows()")
+        del_chk_end = source.find("private void", del_chk_start + 30)
+        del_chk_body = source[del_chk_start:del_chk_end]
+
+        # 任务条目必须追加到归档记录，不可灭失
+        self.assertIn("人工归档记录", del_chk_body)
+
 
 if __name__ == "__main__":
     unittest.main()
