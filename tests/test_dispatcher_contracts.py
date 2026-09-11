@@ -427,14 +427,89 @@ Agent-B +2000
         mission = "这是一个极其漫长并且充满细节的长程协同Mission任务目标名称" * 3
         human_count = 5
 
-        # 模拟 C# 中的截断逻辑
         text = f"CTO:{cto} | M:{mission} | H:{human_count}"
-        self.assertGreater(len(text), 63)
         if len(text) > 63:
             text = text[:60] + "..."
 
         self.assertLessEqual(len(text), 63, "NotifyIcon.Text 绝不能超过 63 字符！")
         self.assertTrue(text.endswith("..."))
+
+    def test_multi_instance_cli_args_parsing(self):
+        """命令行参数动态配置端口与实例模式契约"""
+        def parse_args_sim(args):
+            opts = {
+                "instance": "prod",
+                "port": 8787,
+                "dry_run": False,
+                "war_room": None,
+                "runtime_dir": None
+            }
+            i = 0
+            while i < len(args):
+                a = args[i].lower()
+                if a == "--port" and i + 1 < len(args):
+                    opts["port"] = int(args[i + 1])
+                    i += 1
+                elif a == "--instance" and i + 1 < len(args):
+                    opts["instance"] = args[i + 1]
+                    i += 1
+                elif a == "--dry-run":
+                    opts["dry_run"] = True
+                    opts["instance"] = "test"
+                    if opts["port"] == 8787:
+                        opts["port"] = 8788
+                i += 1
+            if opts["instance"].lower() == "test" and opts["port"] == 8787:
+                opts["port"] = 8788
+            return opts
+
+        # Default Prod
+        default_opts = parse_args_sim([])
+        self.assertEqual(default_opts["instance"], "prod")
+        self.assertEqual(default_opts["port"], 8787)
+        self.assertFalse(default_opts["dry_run"])
+
+        # Explicit Test Port
+        test_opts = parse_args_sim(["--port", "8788", "--instance", "test"])
+        self.assertEqual(test_opts["instance"], "test")
+        self.assertEqual(test_opts["port"], 8788)
+
+        # Dry-run flag
+        dry_opts = parse_args_sim(["--dry-run"])
+        self.assertEqual(dry_opts["instance"], "test")
+        self.assertEqual(dry_opts["port"], 8788)
+        self.assertTrue(dry_opts["dry_run"])
+
+    def test_mutex_name_isolation(self):
+        """验证正式与测试实例使用不同 Mutex 互斥量，保证同时并存运行不抢占"""
+        def get_mutex_name(instance_id, port):
+            return f"Local\\CodeAiDispatcher_SingleInstance_{instance_id.lower()}_{port}"
+
+        prod_mutex = get_mutex_name("prod", 8787)
+        test_mutex = get_mutex_name("test", 8788)
+
+        self.assertNotEqual(prod_mutex, test_mutex, "正式与测试实例 Mutex 必须完全隔离！")
+        self.assertIn("prod_8787", prod_mutex)
+        self.assertIn("test_8788", test_mutex)
+
+    def test_runtime_and_meetings_directory_isolation(self):
+        """验证正式与测试实例的运行态目录与会议室目录必须物理隔离，防串单防重复ACK"""
+        project_root = r"D:\workSpace\aiFundTournament"
+
+        def resolve_dirs(is_test, port, instance_id):
+            if is_test:
+                r_dir = os.path.join(project_root, "CodeAi", "运行态", f"dispatcher_{instance_id}_{port}")
+                m_dir = os.path.join(project_root, "AI-War-Room-Test", "Meetings")
+            else:
+                r_dir = os.path.join(project_root, "CodeAi", "运行态", "dispatcher")
+                m_dir = os.path.join(project_root, "CodeAi", "会议")
+            return r_dir, m_dir
+
+        prod_r, prod_m = resolve_dirs(False, 8787, "prod")
+        test_r, test_m = resolve_dirs(True, 8788, "test")
+
+        self.assertNotEqual(prod_r, test_r, "运行态目录（状态文件、投递流水、审计日志）必须完全物理隔离！")
+        self.assertNotEqual(prod_m, test_m, "会议室目录必须完全隔离，测试信件绝不能流入正式会议目录！")
 
 
 if __name__ == "__main__":

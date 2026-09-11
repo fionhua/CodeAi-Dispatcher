@@ -21,6 +21,7 @@ using System.Collections.Generic;
 using System.Windows.Automation;
 using System.Web.Script.Serialization;
 using System.Media;
+using System.Net;
 using System.Linq;
 
 [assembly: System.Reflection.AssemblyTitle("CodeAiDispatcher")]
@@ -36,6 +37,36 @@ namespace CodeAiTools
     // ============================================================================
     // AI Coding War Room 施工指令核心模型与组件
     // ============================================================================
+
+    
+    // ============================================================================
+    // 多实例共存与动态配置体系
+    // ============================================================================
+    public class InstanceOptions
+    {
+        public string InstanceId { get; set; }
+        public int Port { get; set; }
+        public string WarRoomRoot { get; set; }
+        public string MeetingDir { get; set; }
+        public string RuntimeDir { get; set; }
+        public string NodeConfigFile { get; set; }
+        public bool DryRun { get; set; }
+
+        public InstanceOptions()
+        {
+            InstanceId = "prod";
+            Port = 8787;
+            DryRun = false;
+        }
+
+        public bool IsTestInstance
+        {
+            get
+            {
+                return (InstanceId != null && InstanceId.ToLower() == "test") || Port == 8788 || DryRun;
+            }
+        }
+    }
 
     public class WarRoomConfig
     {
@@ -459,6 +490,12 @@ namespace CodeAiTools
     public class DispatcherForm : Form
     {
         // AI War Room State
+        
+        // Multi-Instance & HTTP API Server
+        private InstanceOptions instanceOpts;
+        private HttpListener httpListener;
+        private Thread httpListenerThread;
+        private bool isHttpRunning = false;
         private WarRoomConfig warRoomConfig;
         private string warRoomRootDir;
         private string ctoName = "泥蛇";
@@ -671,17 +708,36 @@ namespace CodeAiTools
             }
         }
 
-        public DispatcherForm()
+        public DispatcherForm() : this(new InstanceOptions())
         {
+        }
+
+        public DispatcherForm(InstanceOptions options)
+        {
+            this.instanceOpts = options != null ? options : new InstanceOptions();
+            if (this.instanceOpts.IsTestInstance)
+            {
+                // 测试实例默认使用独立的测试 War Room 路径
+                if (string.IsNullOrEmpty(this.instanceOpts.WarRoomRoot))
+                {
+                    string pRoot = AppDomain.CurrentDomain.BaseDirectory;
+                    DirectoryInfo di = new DirectoryInfo(pRoot);
+                    while (di != null && !Directory.Exists(Path.Combine(di.FullName, "CodeAi"))) di = di.Parent;
+                    string pr = di != null ? di.FullName : pRoot;
+                    this.instanceOpts.WarRoomRoot = Path.Combine(pr, "AI-War-Room-Test");
+                }
+            }
+
             InitializeComponent();
             SetupTray();
-            // War Room & Sentinel Startup
+            
             this.Shown += (s, e) =>
             {
                 CheckAndPromptOnboarding();
                 InitAutoWatcher();
                 InitRetryTimer();
                 CatchUpScan();
+                StartHttpServer();
             };
         }
 
@@ -697,7 +753,14 @@ namespace CodeAiTools
             this.StartPosition = FormStartPosition.Manual;
             this.Location = new Point(screen.Right - formWidth - 20, screen.Bottom - formHeight - 20);
             this.MinimumSize = new Size(460, 560);
-            this.Text = string.Format("⚡ CodeAi War Room 协同中枢 [v{0}]", NOTICE_VERSION);
+            if (instanceOpts != null && instanceOpts.IsTestInstance)
+            {
+                this.Text = string.Format("🧪 [TEST:{0}] CodeAi War Room (测试沙箱) [v{1}]", instanceOpts.Port, NOTICE_VERSION);
+            }
+            else
+            {
+                this.Text = string.Format("⚡ CodeAi War Room 协同中枢 [PROD:{0}] [v{1}]", instanceOpts != null ? instanceOpts.Port : 8787, NOTICE_VERSION);
+            }
             
             this.BackColor = Color.FromArgb(24, 24, 37);
             this.TopMost = true;
@@ -1313,7 +1376,10 @@ namespace CodeAiTools
             {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.Clear(Color.Transparent);
-                using (Brush b = new SolidBrush(Color.FromArgb(124, 58, 237)))
+                Color iconBg = (instanceOpts != null && instanceOpts.IsTestInstance) 
+                    ? Color.FromArgb(250, 179, 135) // 测试沙箱亮橙色
+                    : Color.FromArgb(124, 58, 237); // 正式实例紫色
+                using (Brush b = new SolidBrush(iconBg))
                 {
                     g.FillEllipse(b, 1, 1, 14, 14);
                 }
@@ -1364,7 +1430,9 @@ namespace CodeAiTools
                 }
                 string projectRoot = d != null ? d.FullName : baseDir;
 
-                string candidateWarRoom = Path.Combine(projectRoot, "AI-War-Room");
+                string candidateWarRoom = (instanceOpts != null && !string.IsNullOrEmpty(instanceOpts.WarRoomRoot)) 
+                    ? instanceOpts.WarRoomRoot 
+                    : Path.Combine(projectRoot, (instanceOpts != null && instanceOpts.IsTestInstance) ? "AI-War-Room-Test" : "AI-War-Room");
                 string configPath = Path.Combine(candidateWarRoom, "config", "war_room.json");
                 string appLevelConfig = Path.Combine(baseDir, "war_room_config.json");
 
@@ -1406,19 +1474,30 @@ namespace CodeAiTools
 
                 if (needOnboarding)
                 {
-                    using (WarRoomOnboardingForm obForm = new WarRoomOnboardingForm(ctoName, candidateWarRoom))
+                    if (instanceOpts != null && instanceOpts.IsTestInstance)
                     {
-                        if (obForm.ShowDialog(this) == DialogResult.OK)
+                        // 测试实例免弹窗向导，自动静默就绪
+                        warRoomRootDir = candidateWarRoom;
+                        ctoName = "测试CTO";
+                        missionCapital = 10000;
+                        EnsureWarRoomStructure(warRoomRootDir, ctoName);
+                    }
+                    else
+                    {
+                        using (WarRoomOnboardingForm obForm = new WarRoomOnboardingForm(ctoName, candidateWarRoom))
                         {
-                            ctoName = obForm.SelectedCtoName;
-                            warRoomRootDir = obForm.SelectedWarRoomDir;
-                            missionCapital = 10000;
-                            EnsureWarRoomStructure(warRoomRootDir, ctoName);
-                        }
-                        else
-                        {
-                            warRoomRootDir = candidateWarRoom;
-                            EnsureWarRoomStructure(warRoomRootDir, ctoName);
+                            if (obForm.ShowDialog(this) == DialogResult.OK)
+                            {
+                                ctoName = obForm.SelectedCtoName;
+                                warRoomRootDir = obForm.SelectedWarRoomDir;
+                                missionCapital = 10000;
+                                EnsureWarRoomStructure(warRoomRootDir, ctoName);
+                            }
+                            else
+                            {
+                                warRoomRootDir = candidateWarRoom;
+                                EnsureWarRoomStructure(warRoomRootDir, ctoName);
+                            }
                         }
                     }
                 }
@@ -1868,7 +1947,10 @@ namespace CodeAiTools
         private void UpdateTrayStatus()
         {
             if (trayIcon == null) return;
-            string text = string.Format("CTO:{0} | M:{1} | H:{2}", ctoName, currentMissionTitle, pendingToHumanCount);
+            string prefix = (instanceOpts != null && instanceOpts.IsTestInstance) 
+                ? string.Format("[T:{0}] ", instanceOpts.Port) 
+                : string.Format("[P:{0}] ", instanceOpts != null ? instanceOpts.Port : 8787);
+            string text = string.Format("{0}CTO:{1}|M:{2}|H:{3}", prefix, ctoName, currentMissionTitle, pendingToHumanCount);
             if (text.Length > 63)
             {
                 text = text.Substring(0, 60) + "...";
@@ -2021,8 +2103,41 @@ namespace CodeAiTools
                 }
 
                 string projectRoot = d != null ? d.FullName : baseDir;
-                meetingDir = Path.Combine(projectRoot, "CodeAi", "会议");
-                runtimeStateDir = Path.Combine(projectRoot, "CodeAi", "运行态", "dispatcher");
+
+                // 独立会议室路径隔离
+                if (instanceOpts != null && !string.IsNullOrEmpty(instanceOpts.MeetingDir))
+                {
+                    meetingDir = instanceOpts.MeetingDir;
+                }
+                else if (instanceOpts != null && instanceOpts.IsTestInstance)
+                {
+                    if (!string.IsNullOrEmpty(warRoomRootDir))
+                    {
+                        meetingDir = Path.Combine(warRoomRootDir, "Meetings");
+                    }
+                    else
+                    {
+                        meetingDir = Path.Combine(projectRoot, "AI-War-Room-Test", "Meetings");
+                    }
+                }
+                else
+                {
+                    meetingDir = Path.Combine(projectRoot, "CodeAi", "会议");
+                }
+
+                // 独立运行态与状态文件隔离
+                if (instanceOpts != null && !string.IsNullOrEmpty(instanceOpts.RuntimeDir))
+                {
+                    runtimeStateDir = instanceOpts.RuntimeDir;
+                }
+                else if (instanceOpts != null && instanceOpts.IsTestInstance)
+                {
+                    runtimeStateDir = Path.Combine(projectRoot, "CodeAi", "运行态", string.Format("dispatcher_{0}_{1}", instanceOpts.InstanceId, instanceOpts.Port));
+                }
+                else
+                {
+                    runtimeStateDir = Path.Combine(projectRoot, "CodeAi", "运行态", "dispatcher");
+                }
 
                 if (!Directory.Exists(meetingDir)) Directory.CreateDirectory(meetingDir);
                 if (!Directory.Exists(runtimeStateDir)) Directory.CreateDirectory(runtimeStateDir);
@@ -3354,14 +3469,197 @@ namespace CodeAiTools
             base.Dispose(disposing);
         }
 
-        [STAThread]
-        public static void Main()
+        
+        // ====================================================================
+        // Lightweight HTTP API Server (Dynamic Port Support)
+        // ====================================================================
+
+        private void StartHttpServer()
         {
+            if (instanceOpts == null || instanceOpts.Port <= 0) return;
+            try
+            {
+                httpListener = new HttpListener();
+                string prefix = string.Format("http://127.0.0.1:{0}/", instanceOpts.Port);
+                httpListener.Prefixes.Add(prefix);
+                httpListener.Start();
+                isHttpRunning = true;
+
+                httpListenerThread = new Thread(HttpServerWorker);
+                httpListenerThread.IsBackground = true;
+                httpListenerThread.Start();
+                LogAudit("HTTP_SERVER_STARTED", string.Format("Listening on {0} [Instance:{1}]", prefix, instanceOpts.InstanceId));
+            }
+            catch (Exception ex)
+            {
+                LogAudit("HTTP_SERVER_ERROR", string.Format("Port {0} failed: {1}", instanceOpts.Port, ex.Message));
+            }
+        }
+
+        private void StopHttpServer()
+        {
+            isHttpRunning = false;
+            try
+            {
+                if (httpListener != null && httpListener.IsListening)
+                {
+                    httpListener.Stop();
+                    httpListener.Close();
+                }
+            }
+            catch { }
+        }
+
+        private void HttpServerWorker()
+        {
+            while (isHttpRunning && httpListener != null && httpListener.IsListening)
+            {
+                try
+                {
+                    HttpListenerContext ctx = httpListener.GetContext();
+                    ThreadPool.QueueUserWorkItem((state) => { HandleHttpRequest(ctx); });
+                }
+                catch (HttpListenerException) { break; }
+                catch (Exception) { }
+            }
+        }
+
+        private void HandleHttpRequest(HttpListenerContext ctx)
+        {
+            try
+            {
+                string rawUrl = ctx.Request.RawUrl ?? "";
+                string path = rawUrl.Split('?')[0].TrimEnd('/').ToLower();
+                string method = ctx.Request.HttpMethod.ToUpper();
+
+                ctx.Response.ContentType = "application/json; charset=utf-8";
+                ctx.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+
+                if (method == "OPTIONS")
+                {
+                    ctx.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                    ctx.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
+                    ctx.Response.StatusCode = 200;
+                    ctx.Response.Close();
+                    return;
+                }
+
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                if ((path == "/api/status" || path == "/api/health") && method == "GET")
+                {
+                    var statusObj = new Dictionary<string, object>
+                    {
+                        { "status", "OK" },
+                        { "instanceId", instanceOpts.InstanceId },
+                        { "isTestInstance", instanceOpts.IsTestInstance },
+                        { "port", instanceOpts.Port },
+                        { "dryRun", instanceOpts.DryRun },
+                        { "cto", ctoName },
+                        { "mission", currentMissionTitle },
+                        { "warRoomRoot", warRoomRootDir },
+                        { "meetingDir", meetingDir },
+                        { "runtimeDir", runtimeStateDir },
+                        { "watching", isWatchingActive },
+                        { "pendingToHuman", pendingToHumanCount },
+                        { "checklistCount", currentChecklistItems != null ? currentChecklistItems.Count : 0 },
+                        { "meetingsCount", currentMeetingItems != null ? currentMeetingItems.Count : 0 }
+                    };
+                    byte[] bytes = Encoding.UTF8.GetBytes(ser.Serialize(statusObj));
+                    ctx.Response.StatusCode = 200;
+                    ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+                }
+                else if (path == "/api/checklist" && method == "GET")
+                {
+                    byte[] bytes = Encoding.UTF8.GetBytes(ser.Serialize(currentChecklistItems));
+                    ctx.Response.StatusCode = 200;
+                    ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+                }
+                else if (path == "/api/meetings" && method == "GET")
+                {
+                    byte[] bytes = Encoding.UTF8.GetBytes(ser.Serialize(currentMeetingItems));
+                    ctx.Response.StatusCode = 200;
+                    ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+                }
+                else if ((path == "/api/knock" || path == "/api/broadcast") && method == "POST")
+                {
+                    string body = "";
+                    using (StreamReader reader = new StreamReader(ctx.Request.InputStream, Encoding.UTF8))
+                    {
+                        body = reader.ReadToEnd();
+                    }
+                    Dictionary<string, object> req = ser.Deserialize<Dictionary<string, object>>(body) ?? new Dictionary<string, object>();
+                    string node = req.ContainsKey("node") ? req["node"].ToString() : "";
+                    string msg = req.ContainsKey("message") ? req["message"].ToString() : "";
+                    string taskId = req.ContainsKey("taskId") ? req["taskId"].ToString() : "HTTP_DIRECT_KNOCK";
+
+                    if (this.IsHandleCreated)
+                    {
+                        this.BeginInvoke(new Action(() =>
+                        {
+                            if (!string.IsNullOrEmpty(node))
+                            {
+                                DispatchDoorbellToNode(node, taskId, msg);
+                            }
+                        }));
+                    }
+
+                    var resp = new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "instance", instanceOpts.InstanceId },
+                        { "node", node },
+                        { "taskId", taskId }
+                    };
+                    byte[] bytes = Encoding.UTF8.GetBytes(ser.Serialize(resp));
+                    ctx.Response.StatusCode = 200;
+                    ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+                }
+                else if (path == "/api/shutdown" && method == "POST")
+                {
+                    var resp = new Dictionary<string, object>
+                    {
+                        { "message", "Shutting down instance " + instanceOpts.InstanceId },
+                        { "port", instanceOpts.Port }
+                    };
+                    byte[] bytes = Encoding.UTF8.GetBytes(ser.Serialize(resp));
+                    ctx.Response.StatusCode = 200;
+                    ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+                    ctx.Response.Close();
+
+                    ThreadPool.QueueUserWorkItem((s) =>
+                    {
+                        Thread.Sleep(200);
+                        Environment.Exit(0);
+                    });
+                    return;
+                }
+                else
+                {
+                    ctx.Response.StatusCode = 404;
+                    byte[] bytes = Encoding.UTF8.GetBytes("{\"error\": \"Not Found\"}");
+                    ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+                }
+            }
+            catch { }
+            finally
+            {
+                try { ctx.Response.Close(); } catch { }
+            }
+        }
+
+        [STAThread]
+        public static void Main(string[] args)
+        {
+            InstanceOptions opts = ParseCommandLineArgs(args);
+
+            // 动态命名互斥量：正式实例与测试实例拥有各自独立的 Mutex，互不抢占！
+            string mutexName = string.Format("Local\\CodeAiDispatcher_SingleInstance_{0}_{1}", opts.InstanceId.ToLower(), opts.Port);
             bool createdNew;
-            using (Mutex mutex = new Mutex(true, "Local\\CodeAiDispatcher_SingleInstance_Mutex_v3", out createdNew))
+            using (Mutex mutex = new Mutex(true, mutexName, out createdNew))
             {
                 if (!createdNew)
                 {
+                    // 已有同端口实例运行，避免端口冲突与重复实例
                     return;
                 }
 
@@ -3369,18 +3667,105 @@ namespace CodeAiTools
                 {
                     Application.EnableVisualStyles();
                     Application.SetCompatibleTextRenderingDefault(false);
-                    Application.Run(new DispatcherForm());
+                    Application.Run(new DispatcherForm(opts));
                 }
                 catch (Exception ex)
                 {
                     try
                     {
-                        string crashLog = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CodeAi", "运行态", "dispatcher", "dispatcher_crash.log");
+                        string crashLog = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, string.Format("dispatcher_crash_{0}_{1}.log", opts.InstanceId, opts.Port));
                         File.WriteAllText(crashLog, ex.ToString());
                     }
                     catch { }
                 }
             }
+        }
+
+        public static InstanceOptions ParseCommandLineArgs(string[] args)
+        {
+            InstanceOptions opts = new InstanceOptions();
+
+            // 1. 读取配置文件 dispatcher_config.json (若存在)
+            try
+            {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string cfgFile = Path.Combine(baseDir, "dispatcher_config.json");
+                if (File.Exists(cfgFile))
+                {
+                    string json = File.ReadAllText(cfgFile, Encoding.UTF8);
+                    JavaScriptSerializer ser = new JavaScriptSerializer();
+                    InstanceOptions loaded = ser.Deserialize<InstanceOptions>(json);
+                    if (loaded != null)
+                    {
+                        if (!string.IsNullOrEmpty(loaded.InstanceId)) opts.InstanceId = loaded.InstanceId;
+                        if (loaded.Port > 0) opts.Port = loaded.Port;
+                        if (!string.IsNullOrEmpty(loaded.WarRoomRoot)) opts.WarRoomRoot = loaded.WarRoomRoot;
+                        if (!string.IsNullOrEmpty(loaded.MeetingDir)) opts.MeetingDir = loaded.MeetingDir;
+                        if (!string.IsNullOrEmpty(loaded.RuntimeDir)) opts.RuntimeDir = loaded.RuntimeDir;
+                        if (!string.IsNullOrEmpty(loaded.NodeConfigFile)) opts.NodeConfigFile = loaded.NodeConfigFile;
+                        opts.DryRun = loaded.DryRun;
+                    }
+                }
+            }
+            catch { }
+
+            // 2. 命令行参数优先覆盖
+            if (args != null)
+            {
+                for (int i = 0; i < args.Length; i++)
+                {
+                    string arg = args[i].Trim();
+                    string lower = arg.ToLower();
+
+                    if (lower == "--port" && i + 1 < args.Length)
+                    {
+                        int p;
+                        if (int.TryParse(args[++i], out p)) opts.Port = p;
+                    }
+                    else if (lower.StartsWith("--port="))
+                    {
+                        int p;
+                        if (int.TryParse(arg.Substring(7), out p)) opts.Port = p;
+                    }
+                    else if ((lower == "--instance" || lower == "--env") && i + 1 < args.Length)
+                    {
+                        opts.InstanceId = args[++i].Trim();
+                    }
+                    else if (lower.StartsWith("--instance=") || lower.StartsWith("--env="))
+                    {
+                        opts.InstanceId = arg.Substring(arg.IndexOf('=') + 1).Trim();
+                    }
+                    else if (lower == "--war-room" && i + 1 < args.Length)
+                    {
+                        opts.WarRoomRoot = args[++i].Trim();
+                    }
+                    else if (lower == "--meeting-dir" && i + 1 < args.Length)
+                    {
+                        opts.MeetingDir = args[++i].Trim();
+                    }
+                    else if (lower == "--runtime-dir" && i + 1 < args.Length)
+                    {
+                        opts.RuntimeDir = args[++i].Trim();
+                    }
+                    else if (lower == "--nodes" && i + 1 < args.Length)
+                    {
+                        opts.NodeConfigFile = args[++i].Trim();
+                    }
+                    else if (lower == "--dry-run" || lower == "--test")
+                    {
+                        opts.DryRun = true;
+                        if (opts.InstanceId == "prod") opts.InstanceId = "test";
+                        if (opts.Port == 8787) opts.Port = 8788;
+                    }
+                }
+            }
+
+            if (opts.InstanceId.ToLower() == "test" && opts.Port == 8787)
+            {
+                opts.Port = 8788;
+            }
+
+            return opts;
         }
 
         // ====================================================================
