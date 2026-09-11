@@ -1,6 +1,6 @@
 # AI Coding Agent Dispatcher
 
-[ 🇨🇳 中文文档 | [🇺🇸 English Documentation](README.md) ]
+[ 🇺🇸 English](README.md) | [🇨🇳 简体中文](README.zh-CN.md) | [🇭🇰 繁體中文](README.zh-TW.md) | [🇯🇵 日本語](README.ja.md) | [🇪🇸 Español](README.es.md)
 
 > ### 🛑 Stop being the message bus between your AI coding agents.
 > **让 AI 自己开会，把人类从复制、转述、催办里释放出来。**

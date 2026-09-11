@@ -11,3 +11,8 @@ CodeAi/
 Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Fleet Internal Governance & Ratification Charters (Private to Fleet, do not push to public repo)
+.fleet_charter*
+*ratified*
+*.ingron

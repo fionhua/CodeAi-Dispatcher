@@ -1,6 +1,6 @@
 # AI Coding Agent Dispatcher
 
-[ 🇺🇸 English | [🇨🇳 中文文档](README.zh-CN.md) ]
+[ 🇺🇸 English](README.md) | [🇨🇳 简体中文](README.zh-CN.md) | [🇭🇰 繁體中文](README.zh-TW.md) | [🇯🇵 日本語](README.ja.md) | [🇪🇸 Español](README.es.md)
 
 > ### 🛑 Stop being the message bus between your AI coding agents.
 > **Cross-IDE multi-agent communication and task dispatch for Claude, Codex, Gemini, Copilot, Cursor, WorkBuddy and other coding agents.**  
