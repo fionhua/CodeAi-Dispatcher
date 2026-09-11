@@ -21,6 +21,7 @@ using System.Collections.Generic;
 using System.Windows.Automation;
 using System.Web.Script.Serialization;
 using System.Media;
+using System.Linq;
 
 [assembly: System.Reflection.AssemblyTitle("CodeAiDispatcher")]
 [assembly: System.Reflection.AssemblyDescription("CodeAi Dispatcher - 跨IDE协同通知与调度核心 (踹门神器)")]
@@ -32,8 +33,449 @@ using System.Media;
 
 namespace CodeAiTools
 {
+    // ============================================================================
+    // AI Coding War Room 施工指令核心模型与组件
+    // ============================================================================
+
+    public class WarRoomConfig
+    {
+        public string CtoName { get; set; }
+        public string WarRoomRoot { get; set; }
+        public int MissionCapital { get; set; }
+        public string CurrentMission { get; set; }
+        public string CreatedAt { get; set; }
+    }
+
+    public class ChecklistItem
+    {
+        public string State { get; set; } // DONE, TODO, ADJUSTED, MODIFIED
+        public string Node { get; set; }  // 责任节点
+        public string Content { get; set; } // 任务内容 / 验收口径
+        public string OriginalLine { get; set; }
+    }
+
+    public class MeetingRowItem
+    {
+        public string Timestamp { get; set; }
+        public string Type { get; set; } // TASK, RESULT, REVIEW, NEEDS_PATCH, PATCH_DONE, VERIFY, PASS, TO_HUMAN, FINAL
+        public string Sender { get; set; }
+        public string Recipient { get; set; }
+        public string Title { get; set; }
+        public string FilePath { get; set; }
+        public string FileName { get; set; }
+    }
+
+    public class WarRoomOnboardingForm : Form
+    {
+        private TextBox txtCtoName;
+        private TextBox txtWarRoomDir;
+        private Button btnBrowse;
+        private Button btnConfirm;
+        public string SelectedCtoName { get; private set; }
+        public string SelectedWarRoomDir { get; private set; }
+
+        public WarRoomOnboardingForm(string defaultCto, string defaultDir)
+        {
+            this.Text = "🚀 AI Coding War Room 首次开箱初始化";
+            this.Size = new Size(540, 390);
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
+            this.BackColor = Color.FromArgb(24, 24, 37);
+            this.ForeColor = Color.FromArgb(205, 214, 244);
+            this.Font = new Font("Segoe UI", 9F);
+
+            Panel pnlHeader = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 65,
+                BackColor = Color.FromArgb(30, 30, 46)
+            };
+            Label lblTitle = new Label
+            {
+                Text = "🏢 AI Coding War Room 首次开箱配置",
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(137, 180, 250),
+                Location = new Point(16, 12),
+                AutoSize = true
+            };
+            Label lblSub = new Label
+            {
+                Text = "只需确认领衔 CTO 与 War Room 根目录，零配置开箱即可启航协作网络",
+                Font = new Font("Microsoft YaHei UI", 8.5F),
+                ForeColor = Color.FromArgb(166, 173, 200),
+                Location = new Point(18, 38),
+                AutoSize = true
+            };
+            pnlHeader.Controls.Add(lblTitle);
+            pnlHeader.Controls.Add(lblSub);
+            this.Controls.Add(pnlHeader);
+
+            int startY = 80;
+
+            // 1. CTO 名称
+            Label lblCto = new Label
+            {
+                Text = "领衔 CTO 名称 (登记为控制面总指挥):",
+                Location = new Point(20, startY),
+                AutoSize = true,
+                ForeColor = Color.FromArgb(186, 194, 222)
+            };
+            this.Controls.Add(lblCto);
+
+            txtCtoName = new TextBox
+            {
+                Location = new Point(20, startY + 22),
+                Size = new Size(480, 26),
+                BackColor = Color.FromArgb(49, 50, 68),
+                ForeColor = Color.FromArgb(205, 214, 244),
+                BorderStyle = BorderStyle.FixedSingle,
+                Text = string.IsNullOrEmpty(defaultCto) ? "泥蛇" : defaultCto
+            };
+            this.Controls.Add(txtCtoName);
+
+            // 2. War Room 根目录
+            Label lblDir = new Label
+            {
+                Text = "AI War Room 根目录 (物理事实源与会议室):",
+                Location = new Point(20, startY + 60),
+                AutoSize = true,
+                ForeColor = Color.FromArgb(186, 194, 222)
+            };
+            this.Controls.Add(lblDir);
+
+            txtWarRoomDir = new TextBox
+            {
+                Location = new Point(20, startY + 82),
+                Size = new Size(395, 26),
+                BackColor = Color.FromArgb(49, 50, 68),
+                ForeColor = Color.FromArgb(205, 214, 244),
+                BorderStyle = BorderStyle.FixedSingle,
+                Text = string.IsNullOrEmpty(defaultDir) ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AI-War-Room") : defaultDir
+            };
+            this.Controls.Add(txtWarRoomDir);
+
+            btnBrowse = new Button
+            {
+                Text = "浏览...",
+                Location = new Point(423, startY + 81),
+                Size = new Size(77, 28),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(49, 50, 68),
+                ForeColor = Color.FromArgb(205, 214, 244),
+                Cursor = Cursors.Hand
+            };
+            btnBrowse.FlatAppearance.BorderSize = 0;
+            btnBrowse.Click += (s, e) =>
+            {
+                using (FolderBrowserDialog fbd = new FolderBrowserDialog())
+                {
+                    fbd.Description = "选择或新建 AI War Room 根目录";
+                    if (Directory.Exists(txtWarRoomDir.Text)) fbd.SelectedPath = txtWarRoomDir.Text;
+                    if (fbd.ShowDialog(this) == DialogResult.OK)
+                    {
+                        txtWarRoomDir.Text = fbd.SelectedPath;
+                    }
+                }
+            };
+            this.Controls.Add(btnBrowse);
+
+            // 3. 初始资本提示条 (零配置默认 10,000 SC)
+            Panel pnlCreditBadge = new Panel
+            {
+                Location = new Point(20, startY + 124),
+                Size = new Size(480, 48),
+                BackColor = Color.FromArgb(30, 30, 46)
+            };
+            Label lblCredits = new Label
+            {
+                Text = "💰 默认资本注入: CTO Mission Capital = 10,000 Starship Credits (零配置开箱)",
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(249, 226, 175),
+                Location = new Point(12, 14),
+                AutoSize = true
+            };
+            pnlCreditBadge.Controls.Add(lblCredits);
+            this.Controls.Add(pnlCreditBadge);
+
+            // 4. 确认按钮
+            btnConfirm = new Button
+            {
+                Text = "🚀 确认并初始化 War Room 空间",
+                Location = new Point(20, startY + 188),
+                Size = new Size(480, 42),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(124, 58, 237),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnConfirm.FlatAppearance.BorderSize = 0;
+            btnConfirm.Click += (s, e) =>
+            {
+                string cto = txtCtoName.Text.Trim();
+                string dir = txtWarRoomDir.Text.Trim();
+                if (string.IsNullOrEmpty(cto))
+                {
+                    MessageBox.Show(this, "请输入 CTO 名称！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                if (string.IsNullOrEmpty(dir))
+                {
+                    MessageBox.Show(this, "请指定 War Room 根目录！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                SelectedCtoName = cto;
+                SelectedWarRoomDir = dir;
+                this.DialogResult = DialogResult.OK;
+                this.Close();
+            };
+            this.Controls.Add(btnConfirm);
+        }
+    }
+
+    public class TrayPreviewPopupForm : Form
+    {
+        public TrayPreviewPopupForm(
+            string cto, 
+            string mission, 
+            int credits, 
+            int humanAlerts, 
+            List<MeetingRowItem> recentMeetings, 
+            Action onOpenChecklist, 
+            Action onOpenMeetings, 
+            Action onOpenMainWindow)
+        {
+            this.FormBorderStyle = FormBorderStyle.None;
+            this.ShowInTaskbar = false;
+            this.TopMost = true;
+            this.Size = new Size(390, 270);
+            this.BackColor = Color.FromArgb(24, 24, 37);
+            this.ForeColor = Color.FromArgb(205, 214, 244);
+            this.Font = new Font("Segoe UI", 8.8F);
+
+            // 定位在屏幕右下角托盘上方
+            Rectangle workArea = Screen.PrimaryScreen.WorkingArea;
+            this.Location = new Point(workArea.Right - this.Width - 14, workArea.Bottom - this.Height - 14);
+
+            // 失去焦点自动关闭
+            this.Deactivate += (s, e) => { this.Close(); };
+
+            // 顶部渐变条
+            Panel pnlTop = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 44,
+                BackColor = Color.FromArgb(30, 30, 46)
+            };
+            Label lblTitle = new Label
+            {
+                Text = string.Format("🏢 AI War Room | CTO: {0}", cto),
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(137, 180, 250),
+                Location = new Point(12, 12),
+                AutoSize = true
+            };
+            pnlTop.Controls.Add(lblTitle);
+
+            if (humanAlerts > 0)
+            {
+                Label lblAlert = new Label
+                {
+                    Text = string.Format("⚠️ 敲门待办: {0}", humanAlerts),
+                    Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(243, 139, 168),
+                    Location = new Point(275, 14),
+                    AutoSize = true
+                };
+                pnlTop.Controls.Add(lblAlert);
+            }
+            this.Controls.Add(pnlTop);
+
+            // Mission 状态区
+            Label lblMission = new Label
+            {
+                Text = string.Format("🎯 Mission: {0}", string.IsNullOrEmpty(mission) ? "常规协同工作流" : mission),
+                Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(249, 226, 175),
+                Location = new Point(14, 52),
+                Size = new Size(360, 20),
+                AutoEllipsis = true
+            };
+            this.Controls.Add(lblMission);
+
+            Label lblCredits = new Label
+            {
+                Text = string.Format("💰 剩余调度资本: {0} Starship Credits", credits),
+                Font = new Font("Segoe UI", 8.2F),
+                ForeColor = Color.FromArgb(166, 227, 161),
+                Location = new Point(14, 74),
+                AutoSize = true
+            };
+            this.Controls.Add(lblCredits);
+
+            // 最近会议信件
+            Label lblRecentTitle = new Label
+            {
+                Text = "最近会议事件 (AI→AI):",
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(147, 153, 178),
+                Location = new Point(14, 98),
+                AutoSize = true
+            };
+            this.Controls.Add(lblRecentTitle);
+
+            Panel pnlList = new Panel
+            {
+                Location = new Point(14, 118),
+                Size = new Size(360, 95),
+                BackColor = Color.FromArgb(17, 17, 27)
+            };
+
+            int mY = 4;
+            if (recentMeetings == null || recentMeetings.Count == 0)
+            {
+                Label lblEmpty = new Label
+                {
+                    Text = "暂无会议信件，哨兵等待首封立项会议中...",
+                    ForeColor = Color.FromArgb(108, 112, 134),
+                    Font = new Font("Microsoft YaHei UI", 8F),
+                    Location = new Point(8, 8),
+                    AutoSize = true
+                };
+                pnlList.Controls.Add(lblEmpty);
+            }
+            else
+            {
+                int count = Math.Min(3, recentMeetings.Count);
+                for (int i = 0; i < count; i++)
+                {
+                    var m = recentMeetings[i];
+                    Label lblItem = new Label
+                    {
+                        Text = string.Format("• [{0}] {1} -> {2}: {3}", m.Type, m.Sender, m.Recipient, m.Title),
+                        Font = new Font("Microsoft YaHei UI", 7.8F),
+                        ForeColor = Color.FromArgb(205, 214, 244),
+                        Location = new Point(6, mY),
+                        Size = new Size(346, 26),
+                        AutoEllipsis = true,
+                        Cursor = Cursors.Hand
+                    };
+                    string fPath = m.FilePath;
+                    lblItem.Click += (s, e) =>
+                    {
+                        try
+                        {
+                            if (!string.IsNullOrEmpty(fPath) && File.Exists(fPath))
+                            {
+                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(fPath) { UseShellExecute = true });
+                            }
+                        }
+                        catch { }
+                    };
+                    pnlList.Controls.Add(lblItem);
+                    mY += 28;
+                }
+            }
+            this.Controls.Add(pnlList);
+
+            // 底部 3 按钮
+            int btnY = 222;
+            Button btnChecklist = new Button
+            {
+                Text = "📋 Checklist",
+                Location = new Point(14, btnY),
+                Size = new Size(112, 32),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(49, 50, 68),
+                ForeColor = Color.FromArgb(205, 214, 244),
+                Font = new Font("Segoe UI", 8.2F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnChecklist.FlatAppearance.BorderSize = 0;
+            btnChecklist.Click += (s, e) =>
+            {
+                this.Close();
+                if (onOpenChecklist != null) onOpenChecklist();
+            };
+            this.Controls.Add(btnChecklist);
+
+            Button btnMeetings = new Button
+            {
+                Text = "💬 会议室",
+                Location = new Point(136, btnY),
+                Size = new Size(112, 32),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(49, 50, 68),
+                ForeColor = Color.FromArgb(205, 214, 244),
+                Font = new Font("Segoe UI", 8.2F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnMeetings.FlatAppearance.BorderSize = 0;
+            btnMeetings.Click += (s, e) =>
+            {
+                this.Close();
+                if (onOpenMeetings != null) onOpenMeetings();
+            };
+            this.Controls.Add(btnMeetings);
+
+            Button btnMain = new Button
+            {
+                Text = "⚡ 主窗口",
+                Location = new Point(258, btnY),
+                Size = new Size(116, 32),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(124, 58, 237),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 8.2F, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btnMain.FlatAppearance.BorderSize = 0;
+            btnMain.Click += (s, e) =>
+            {
+                this.Close();
+                if (onOpenMainWindow != null) onOpenMainWindow();
+            };
+            this.Controls.Add(btnMain);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            using (Pen pen = new Pen(Color.FromArgb(69, 71, 90), 1))
+            {
+                e.Graphics.DrawRectangle(pen, 0, 0, this.Width - 1, this.Height - 1);
+            }
+            using (LinearGradientBrush brush = new LinearGradientBrush(
+                new Point(0, 0), new Point(this.Width, 0),
+                Color.FromArgb(137, 180, 250), Color.FromArgb(203, 166, 247)))
+            {
+                e.Graphics.FillRectangle(brush, 0, 0, this.Width, 3);
+            }
+        }
+    }
+
     public class DispatcherForm : Form
     {
+        // AI War Room State
+        private WarRoomConfig warRoomConfig;
+        private string warRoomRootDir;
+        private string ctoName = "泥蛇";
+        private int missionCapital = 10000;
+        private string currentMissionTitle = "构建与验证多AI协作任务";
+        private int pendingToHumanCount = 0;
+        private FileSystemWatcher missionWatcher;
+        private TabControl tabWarRoom;
+        private DataGridView gridChecklist;
+        private DataGridView gridMeetings;
+        private Label lblWarRoomHeader;
+        private Label lblMissionSubtitle;
+        private Label lblChecklistSummary;
+        private Label lblMeetingsSummary;
+        private List<ChecklistItem> currentChecklistItems = new List<ChecklistItem>();
+        private List<MeetingRowItem> currentMeetingItems = new List<MeetingRowItem>();
+
         // P/Invoke Win32 APIs
         [DllImport("user32.dll")]
         private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -233,9 +675,10 @@ namespace CodeAiTools
         {
             InitializeComponent();
             SetupTray();
-            // P0-1: Postpone watcher and catch-up scan until window handle is fully established
+            // War Room & Sentinel Startup
             this.Shown += (s, e) =>
             {
+                CheckAndPromptOnboarding();
                 InitAutoWatcher();
                 InitRetryTimer();
                 CatchUpScan();
@@ -247,23 +690,285 @@ namespace CodeAiTools
             this.SuspendLayout();
 
             Rectangle screen = Screen.PrimaryScreen.WorkingArea;
-            int formHeight = Math.Min(840, Math.Max(640, screen.Height - 60));
-            int formWidth = 460;
+            int formHeight = Math.Min(860, Math.Max(660, screen.Height - 60));
+            int formWidth = 540;
             this.ClientSize = new Size(formWidth, formHeight);
             this.FormBorderStyle = FormBorderStyle.Sizable;
             this.StartPosition = FormStartPosition.Manual;
             this.Location = new Point(screen.Right - formWidth - 20, screen.Bottom - formHeight - 20);
-            this.MinimumSize = new Size(400, 520);
-            this.Text = string.Format("⚡ CodeAi 调度助手 [v{0}]", NOTICE_VERSION);
+            this.MinimumSize = new Size(460, 560);
+            this.Text = string.Format("⚡ CodeAi War Room 协同中枢 [v{0}]", NOTICE_VERSION);
             
-            this.BackColor = Color.FromArgb(24, 24, 37); // Dark theme #181825
+            this.BackColor = Color.FromArgb(24, 24, 37);
             this.TopMost = true;
             this.ShowInTaskbar = true;
 
+            // 1. Top War Room Status Bar (Banner)
+            Panel pnlWarRoomHeader = new Panel();
+            pnlWarRoomHeader.Location = new Point(12, 10);
+            pnlWarRoomHeader.Size = new Size(this.ClientSize.Width - 24, 60);
+            pnlWarRoomHeader.BackColor = Color.FromArgb(30, 30, 46);
+            pnlWarRoomHeader.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+
+            lblWarRoomHeader = new Label();
+            lblWarRoomHeader.Text = string.Format("🏢 AI War Room | CTO: {0} | 资本: {1} SC", ctoName, missionCapital);
+            lblWarRoomHeader.Font = new Font("Segoe UI", 9.8f, FontStyle.Bold);
+            lblWarRoomHeader.ForeColor = Color.FromArgb(137, 180, 250);
+            lblWarRoomHeader.Location = new Point(10, 8);
+            lblWarRoomHeader.AutoSize = true;
+            pnlWarRoomHeader.Controls.Add(lblWarRoomHeader);
+
+            lblMissionSubtitle = new Label();
+            lblMissionSubtitle.Text = string.Format("🎯 Mission: {0}", currentMissionTitle);
+            lblMissionSubtitle.Font = new Font("Microsoft YaHei UI", 8.5f);
+            lblMissionSubtitle.ForeColor = Color.FromArgb(249, 226, 175);
+            lblMissionSubtitle.Location = new Point(12, 34);
+            lblMissionSubtitle.Size = new Size(pnlWarRoomHeader.Width - 110, 20);
+            lblMissionSubtitle.AutoEllipsis = true;
+            pnlWarRoomHeader.Controls.Add(lblMissionSubtitle);
+
+            Button btnWarRoomSetup = new Button();
+            btnWarRoomSetup.Text = "⚙️ 开箱设置";
+            btnWarRoomSetup.Location = new Point(pnlWarRoomHeader.Width - 94, 8);
+            btnWarRoomSetup.Size = new Size(86, 26);
+            btnWarRoomSetup.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnWarRoomSetup.FlatStyle = FlatStyle.Flat;
+            btnWarRoomSetup.BackColor = Color.FromArgb(49, 50, 68);
+            btnWarRoomSetup.FlatAppearance.BorderSize = 0;
+            btnWarRoomSetup.ForeColor = Color.FromArgb(205, 214, 244);
+            btnWarRoomSetup.Font = new Font("Segoe UI", 7.8f);
+            btnWarRoomSetup.Cursor = Cursors.Hand;
+            btnWarRoomSetup.Click += (s, e) =>
+            {
+                using (WarRoomOnboardingForm ob = new WarRoomOnboardingForm(ctoName, warRoomRootDir))
+                {
+                    if (ob.ShowDialog(this) == DialogResult.OK)
+                    {
+                        ctoName = ob.SelectedCtoName;
+                        warRoomRootDir = ob.SelectedWarRoomDir;
+                        EnsureWarRoomStructure(warRoomRootDir, ctoName);
+                        ReloadMissionSummaryFromDisk();
+                        ReloadChecklistFromDisk();
+                        ReloadMeetingsFromDisk();
+                        UpdateWarRoomHeaderUI();
+                        UpdateTrayStatus();
+                    }
+                }
+            };
+            pnlWarRoomHeader.Controls.Add(btnWarRoomSetup);
+            this.Controls.Add(pnlWarRoomHeader);
+
+            // 2. TabControl Host
+            tabWarRoom = new TabControl();
+            tabWarRoom.Location = new Point(12, pnlWarRoomHeader.Bottom + 8);
+            tabWarRoom.Size = new Size(this.ClientSize.Width - 24, this.ClientSize.Height - pnlWarRoomHeader.Bottom - 16);
+            tabWarRoom.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            tabWarRoom.Font = new Font("Segoe UI", 9f);
+
+            // ================================================================
+            // Tab 1: 📋 CTO Checklist
+            // ================================================================
+            TabPage pageChecklist = new TabPage("📋 CTO Checklist");
+            pageChecklist.BackColor = Color.FromArgb(24, 24, 37);
+
+            Panel pnlCheckTools = new Panel();
+            pnlCheckTools.Dock = DockStyle.Top;
+            pnlCheckTools.Height = 32;
+            pnlCheckTools.BackColor = Color.FromArgb(30, 30, 46);
+
+            lblChecklistSummary = new Label();
+            lblChecklistSummary.Text = "任务统计: 载入中...";
+            lblChecklistSummary.Font = new Font("Segoe UI", 8f, FontStyle.Bold);
+            lblChecklistSummary.ForeColor = Color.FromArgb(166, 173, 200);
+            lblChecklistSummary.Location = new Point(8, 8);
+            lblChecklistSummary.AutoSize = true;
+            pnlCheckTools.Controls.Add(lblChecklistSummary);
+
+            Button btnOpenChecklistFile = new Button();
+            btnOpenChecklistFile.Text = "📂 打开 CHECKLIST.md";
+            btnOpenChecklistFile.Size = new Size(150, 24);
+            btnOpenChecklistFile.Location = new Point(pnlCheckTools.Width - 216, 4);
+            btnOpenChecklistFile.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnOpenChecklistFile.FlatStyle = FlatStyle.Flat;
+            btnOpenChecklistFile.BackColor = Color.FromArgb(49, 50, 68);
+            btnOpenChecklistFile.ForeColor = Color.FromArgb(205, 214, 244);
+            btnOpenChecklistFile.Font = new Font("Segoe UI", 7.8f);
+            btnOpenChecklistFile.Cursor = Cursors.Hand;
+            btnOpenChecklistFile.Click += (s, e) => { OpenChecklistFile(); };
+            pnlCheckTools.Controls.Add(btnOpenChecklistFile);
+
+            Button btnRefreshChecklist = new Button();
+            btnRefreshChecklist.Text = "🔄 刷新";
+            btnRefreshChecklist.Size = new Size(58, 24);
+            btnRefreshChecklist.Location = new Point(pnlCheckTools.Width - 62, 4);
+            btnRefreshChecklist.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnRefreshChecklist.FlatStyle = FlatStyle.Flat;
+            btnRefreshChecklist.BackColor = Color.FromArgb(49, 50, 68);
+            btnRefreshChecklist.ForeColor = Color.FromArgb(205, 214, 244);
+            btnRefreshChecklist.Font = new Font("Segoe UI", 7.8f);
+            btnRefreshChecklist.Cursor = Cursors.Hand;
+            btnRefreshChecklist.Click += (s, e) => { ReloadChecklistFromDisk(); };
+            pnlCheckTools.Controls.Add(btnRefreshChecklist);
+
+            pageChecklist.Controls.Add(pnlCheckTools);
+
+            gridChecklist = new DataGridView();
+            gridChecklist.Dock = DockStyle.Fill;
+            gridChecklist.BackgroundColor = Color.FromArgb(17, 17, 27);
+            gridChecklist.ForeColor = Color.FromArgb(205, 214, 244);
+            gridChecklist.GridColor = Color.FromArgb(49, 50, 68);
+            gridChecklist.BorderStyle = BorderStyle.None;
+            gridChecklist.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            gridChecklist.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+            gridChecklist.EnableHeadersVisualStyles = false;
+            gridChecklist.RowHeadersVisible = false;
+            gridChecklist.AllowUserToAddRows = false;
+            gridChecklist.AllowUserToDeleteRows = false;
+            gridChecklist.AllowUserToResizeRows = false;
+            gridChecklist.ReadOnly = true;
+            gridChecklist.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            gridChecklist.MultiSelect = false;
+            gridChecklist.Font = new Font("Segoe UI", 8.5f);
+            gridChecklist.RowTemplate.Height = 26;
+
+            DataGridViewCellStyle clHeaderStyle = new DataGridViewCellStyle();
+            clHeaderStyle.BackColor = Color.FromArgb(30, 30, 46);
+            clHeaderStyle.ForeColor = Color.FromArgb(166, 173, 200);
+            clHeaderStyle.Font = new Font("Segoe UI", 8.2f, FontStyle.Bold);
+            gridChecklist.ColumnHeadersDefaultCellStyle = clHeaderStyle;
+            gridChecklist.ColumnHeadersHeight = 26;
+
+            gridChecklist.Columns.Add("colCheckState", "状态");
+            gridChecklist.Columns["colCheckState"].Width = 90;
+            gridChecklist.Columns.Add("colCheckNode", "责任节点");
+            gridChecklist.Columns["colCheckNode"].Width = 85;
+            gridChecklist.Columns.Add("colCheckContent", "任务内容 / 验收口径");
+            gridChecklist.Columns["colCheckContent"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+
+            gridChecklist.CellDoubleClick += (s, e) => { OpenChecklistFile(); };
+
+            Label lblChecklistTip = new Label();
+            lblChecklistTip.Text = "💡 双击任意任务条目直接打开并编辑 CHECKLIST.md，文件才是事实源";
+            lblChecklistTip.Dock = DockStyle.Bottom;
+            lblChecklistTip.Height = 22;
+            lblChecklistTip.Font = new Font("Microsoft YaHei UI", 7.8f);
+            lblChecklistTip.ForeColor = Color.FromArgb(108, 112, 134);
+            lblChecklistTip.BackColor = Color.FromArgb(24, 24, 37);
+            lblChecklistTip.TextAlign = ContentAlignment.MiddleLeft;
+
+            pageChecklist.Controls.Add(gridChecklist);
+            pageChecklist.Controls.Add(lblChecklistTip);
+            tabWarRoom.TabPages.Add(pageChecklist);
+
+            // ================================================================
+            // Tab 2: 💬 Meetings 会议
+            // ================================================================
+            TabPage pageMeetings = new TabPage("💬 Meetings 会议");
+            pageMeetings.BackColor = Color.FromArgb(24, 24, 37);
+
+            Panel pnlMeetTools = new Panel();
+            pnlMeetTools.Dock = DockStyle.Top;
+            pnlMeetTools.Height = 32;
+            pnlMeetTools.BackColor = Color.FromArgb(30, 30, 46);
+
+            lblMeetingsSummary = new Label();
+            lblMeetingsSummary.Text = "会议动态: 载入中...";
+            lblMeetingsSummary.Font = new Font("Segoe UI", 8f, FontStyle.Bold);
+            lblMeetingsSummary.ForeColor = Color.FromArgb(166, 173, 200);
+            lblMeetingsSummary.Location = new Point(8, 8);
+            lblMeetingsSummary.AutoSize = true;
+            pnlMeetTools.Controls.Add(lblMeetingsSummary);
+
+            Button btnOpenMeetDir = new Button();
+            btnOpenMeetDir.Text = "📂 打开会议室目录";
+            btnOpenMeetDir.Size = new Size(130, 24);
+            btnOpenMeetDir.Location = new Point(pnlMeetTools.Width - 196, 4);
+            btnOpenMeetDir.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnOpenMeetDir.FlatStyle = FlatStyle.Flat;
+            btnOpenMeetDir.BackColor = Color.FromArgb(49, 50, 68);
+            btnOpenMeetDir.ForeColor = Color.FromArgb(205, 214, 244);
+            btnOpenMeetDir.Font = new Font("Segoe UI", 7.8f);
+            btnOpenMeetDir.Cursor = Cursors.Hand;
+            btnOpenMeetDir.Click += (s, e) => { OpenMeetingsDirectory(); };
+            pnlMeetTools.Controls.Add(btnOpenMeetDir);
+
+            Button btnRefreshMeetings = new Button();
+            btnRefreshMeetings.Text = "🔄 刷新";
+            btnRefreshMeetings.Size = new Size(58, 24);
+            btnRefreshMeetings.Location = new Point(pnlMeetTools.Width - 62, 4);
+            btnRefreshMeetings.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnRefreshMeetings.FlatStyle = FlatStyle.Flat;
+            btnRefreshMeetings.BackColor = Color.FromArgb(49, 50, 68);
+            btnRefreshMeetings.ForeColor = Color.FromArgb(205, 214, 244);
+            btnRefreshMeetings.Font = new Font("Segoe UI", 7.8f);
+            btnRefreshMeetings.Cursor = Cursors.Hand;
+            btnRefreshMeetings.Click += (s, e) => { ReloadMeetingsFromDisk(); };
+            pnlMeetTools.Controls.Add(btnRefreshMeetings);
+
+            pageMeetings.Controls.Add(pnlMeetTools);
+
+            gridMeetings = new DataGridView();
+            gridMeetings.Dock = DockStyle.Fill;
+            gridMeetings.BackgroundColor = Color.FromArgb(17, 17, 27);
+            gridMeetings.ForeColor = Color.FromArgb(205, 214, 244);
+            gridMeetings.GridColor = Color.FromArgb(49, 50, 68);
+            gridMeetings.BorderStyle = BorderStyle.None;
+            gridMeetings.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            gridMeetings.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+            gridMeetings.EnableHeadersVisualStyles = false;
+            gridMeetings.RowHeadersVisible = false;
+            gridMeetings.AllowUserToAddRows = false;
+            gridMeetings.AllowUserToDeleteRows = false;
+            gridMeetings.AllowUserToResizeRows = false;
+            gridMeetings.ReadOnly = true;
+            gridMeetings.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            gridMeetings.MultiSelect = false;
+            gridMeetings.Font = new Font("Segoe UI", 8.2f);
+            gridMeetings.RowTemplate.Height = 24;
+
+            DataGridViewCellStyle mHeaderStyle = new DataGridViewCellStyle();
+            mHeaderStyle.BackColor = Color.FromArgb(30, 30, 46);
+            mHeaderStyle.ForeColor = Color.FromArgb(166, 173, 200);
+            mHeaderStyle.Font = new Font("Segoe UI", 8f, FontStyle.Bold);
+            gridMeetings.ColumnHeadersDefaultCellStyle = mHeaderStyle;
+            gridMeetings.ColumnHeadersHeight = 26;
+
+            gridMeetings.Columns.Add("colMeetTime", "时间");
+            gridMeetings.Columns["colMeetTime"].Width = 60;
+            gridMeetings.Columns.Add("colMeetType", "阶段/动作");
+            gridMeetings.Columns["colMeetType"].Width = 90;
+            gridMeetings.Columns.Add("colMeetSender", "发件人");
+            gridMeetings.Columns["colMeetSender"].Width = 72;
+            gridMeetings.Columns.Add("colMeetRecipient", "收件人");
+            gridMeetings.Columns["colMeetRecipient"].Width = 72;
+            gridMeetings.Columns.Add("colMeetTitle", "会议事项 / 信件原件");
+            gridMeetings.Columns["colMeetTitle"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+
+            gridMeetings.CellDoubleClick += (s, e) => { OpenSelectedMeetingFile(); };
+
+            Label lblMeetTip = new Label();
+            lblMeetTip.Text = "💡 双击会议条目直接打开会议原始信件，文件才是事实源";
+            lblMeetTip.Dock = DockStyle.Bottom;
+            lblMeetTip.Height = 22;
+            lblMeetTip.Font = new Font("Microsoft YaHei UI", 7.8f);
+            lblMeetTip.ForeColor = Color.FromArgb(108, 112, 134);
+            lblMeetTip.BackColor = Color.FromArgb(24, 24, 37);
+            lblMeetTip.TextAlign = ContentAlignment.MiddleLeft;
+
+            pageMeetings.Controls.Add(gridMeetings);
+            pageMeetings.Controls.Add(lblMeetTip);
+            tabWarRoom.TabPages.Add(pageMeetings);
+
+            // ================================================================
+            // Tab 3: 📢 哨兵控制台 (Sentinel Console)
+            // ================================================================
+            TabPage pageConsole = new TabPage("📢 哨兵控制台");
+            pageConsole.BackColor = Color.FromArgb(24, 24, 37);
+
             // Sentinel Auto-Watch Toggle Bar
             Panel pnlSentinel = new Panel();
-            pnlSentinel.Location = new Point(12, 10);
-            pnlSentinel.Size = new Size(this.ClientSize.Width - 24, 32);
+            pnlSentinel.Location = new Point(8, 8);
+            pnlSentinel.Size = new Size(tabWarRoom.Width - 24, 32);
             pnlSentinel.BackColor = Color.FromArgb(30, 30, 46);
             pnlSentinel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
@@ -302,14 +1007,14 @@ namespace CodeAiTools
             btnToggleWatch.Click += (s, e) => { ToggleWatchMode(); };
             pnlSentinel.Controls.Add(btnToggleWatch);
 
-            this.Controls.Add(pnlSentinel);
+            pageConsole.Controls.Add(pnlSentinel);
 
             // Partner Checkboxes Group (Dynamic Configuration-Driven)
             int listHeight = Math.Max(70, 26 + configuredNodes.Count * 22);
             Panel pnlList = new Panel();
-            pnlList.Location = new Point(12, 48);
-            pnlList.Size = new Size(this.ClientSize.Width - 24, listHeight);
-            pnlList.BackColor = Color.FromArgb(30, 30, 46); // #1e1e2e
+            pnlList.Location = new Point(8, 46);
+            pnlList.Size = new Size(tabWarRoom.Width - 24, listHeight);
+            pnlList.BackColor = Color.FromArgb(30, 30, 46);
             pnlList.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             Label lblGroupTitle = new Label();
@@ -364,7 +1069,7 @@ namespace CodeAiTools
             pnlList.Controls.Add(btnRefreshPartners);
 
             AutoDetectPartnerCheckboxes();
-            this.Controls.Add(pnlList);
+            pageConsole.Controls.Add(pnlList);
 
             int topY = pnlList.Bottom + 4;
 
@@ -373,15 +1078,14 @@ namespace CodeAiTools
             lblMsg.Text = "通知内容 (Message):";
             lblMsg.Font = new Font("Segoe UI", 8.2f);
             lblMsg.ForeColor = Color.FromArgb(147, 153, 178);
-            lblMsg.Location = new Point(12, topY);
+            lblMsg.Location = new Point(8, topY);
             lblMsg.AutoSize = true;
-            lblMsg.Anchor = AnchorStyles.Top | AnchorStyles.Left;
-            this.Controls.Add(lblMsg);
+            pageConsole.Controls.Add(lblMsg);
 
             // Multiline Message TextBox
             txtNotice = new TextBox();
-            txtNotice.Location = new Point(12, topY + 18);
-            txtNotice.Size = new Size(this.ClientSize.Width - 24, 86);
+            txtNotice.Location = new Point(8, topY + 18);
+            txtNotice.Size = new Size(tabWarRoom.Width - 24, 76);
             txtNotice.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             txtNotice.Text = DEFAULT_NOTICE;
             txtNotice.Multiline = true;
@@ -390,63 +1094,63 @@ namespace CodeAiTools
             txtNotice.ForeColor = Color.FromArgb(205, 214, 244);
             txtNotice.BorderStyle = BorderStyle.FixedSingle;
             txtNotice.Font = new Font("Segoe UI", 8.5f);
-            this.Controls.Add(txtNotice);
+            pageConsole.Controls.Add(txtNotice);
 
             // Action Buttons Row: [手动通知] + [默认]
             int resetWidth = 98;
             int btnY = txtNotice.Bottom + 6;
             btnBroadcast = new Button();
             btnBroadcast.Text = "📢 手动通知";
-            btnBroadcast.Location = new Point(12, btnY);
-            btnBroadcast.Size = new Size(this.ClientSize.Width - 24 - resetWidth - 8, 32);
+            btnBroadcast.Location = new Point(8, btnY);
+            btnBroadcast.Size = new Size(tabWarRoom.Width - 24 - resetWidth - 8, 30);
             btnBroadcast.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             btnBroadcast.FlatStyle = FlatStyle.Flat;
-            btnBroadcast.BackColor = Color.FromArgb(124, 58, 237); // Purple #7c3aed
+            btnBroadcast.BackColor = Color.FromArgb(124, 58, 237);
             btnBroadcast.FlatAppearance.BorderSize = 0;
             btnBroadcast.ForeColor = Color.White;
-            btnBroadcast.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+            btnBroadcast.Font = new Font("Segoe UI", 9.2f, FontStyle.Bold);
             btnBroadcast.Cursor = Cursors.Hand;
             btnBroadcast.Click += async (s, e) => { await ExecuteManualBroadcast(); };
-            this.Controls.Add(btnBroadcast);
+            pageConsole.Controls.Add(btnBroadcast);
 
             btnReset = new Button();
             btnReset.Text = "↺ 默认";
-            btnReset.Location = new Point(this.ClientSize.Width - 12 - resetWidth, btnY);
-            btnReset.Size = new Size(resetWidth, 32);
+            btnReset.Location = new Point(tabWarRoom.Width - 16 - resetWidth, btnY);
+            btnReset.Size = new Size(resetWidth, 30);
             btnReset.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnReset.FlatStyle = FlatStyle.Flat;
-            btnReset.BackColor = Color.FromArgb(49, 50, 68); // #313244
+            btnReset.BackColor = Color.FromArgb(49, 50, 68);
             btnReset.FlatAppearance.BorderSize = 0;
             btnReset.ForeColor = Color.FromArgb(205, 214, 244);
-            btnReset.Font = new Font("Segoe UI", 8.8f, FontStyle.Bold);
+            btnReset.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
             btnReset.Cursor = Cursors.Hand;
             btnReset.Click += (s, e) =>
             {
                 txtNotice.Text = DEFAULT_NOTICE;
                 lblStatus.Text = string.Format("已重置为默认门铃通告 [v{0}]", NOTICE_VERSION);
             };
-            this.Controls.Add(btnReset);
+            pageConsole.Controls.Add(btnReset);
 
             // Status label
             lblStatus = new Label();
             lblStatus.Text = "就绪 | 会议目录自动监控中";
             lblStatus.Font = new Font("Segoe UI", 8f);
             lblStatus.ForeColor = Color.FromArgb(166, 173, 200);
-            lblStatus.Location = new Point(12, btnBroadcast.Bottom + 4);
-            lblStatus.Size = new Size(this.ClientSize.Width - 24, 22);
+            lblStatus.Location = new Point(8, btnBroadcast.Bottom + 4);
+            lblStatus.Size = new Size(tabWarRoom.Width - 24, 20);
             lblStatus.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            this.Controls.Add(lblStatus);
+            pageConsole.Controls.Add(lblStatus);
 
-            // P1-2: Recent Deliveries and ACK Status Panel (Colorful Grid)
+            // Recent Deliveries and ACK Status Panel (Colorful Grid)
             int pnlDelivY = lblStatus.Bottom + 4;
             Panel pnlDeliveries = new Panel();
-            pnlDeliveries.Location = new Point(12, pnlDelivY);
-            pnlDeliveries.Size = new Size(this.ClientSize.Width - 24, this.ClientSize.Height - pnlDelivY - 12);
+            pnlDeliveries.Location = new Point(8, pnlDelivY);
+            pnlDeliveries.Size = new Size(tabWarRoom.Width - 24, tabWarRoom.Height - pnlDelivY - 38);
             pnlDeliveries.BackColor = Color.FromArgb(30, 30, 46);
             pnlDeliveries.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
 
             Label lblDelivTitle = new Label();
-            lblDelivTitle.Text = "近期投递与ACK状态 (Recent Deliveries):";
+            lblDelivTitle.Text = "投递与ACK监控 (Recent Deliveries):";
             lblDelivTitle.Font = new Font("Segoe UI", 7.8f, FontStyle.Bold);
             lblDelivTitle.ForeColor = Color.FromArgb(147, 153, 178);
             lblDelivTitle.Location = new Point(8, 5);
@@ -506,7 +1210,6 @@ namespace CodeAiTools
             headerStyle.BackColor = Color.FromArgb(30, 30, 46);
             headerStyle.ForeColor = Color.FromArgb(166, 173, 200);
             headerStyle.Font = new Font("Segoe UI", 8f, FontStyle.Bold);
-            headerStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
             gridDeliveries.ColumnHeadersDefaultCellStyle = headerStyle;
             gridDeliveries.ColumnHeadersHeight = 24;
 
@@ -519,40 +1222,11 @@ namespace CodeAiTools
             gridDeliveries.Columns.Add("colFile", "事项 / 文件");
             gridDeliveries.Columns["colFile"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
 
-            ContextMenuStrip gridContextMenu = new ContextMenuStrip();
-            gridContextMenu.BackColor = Color.FromArgb(30, 30, 46);
-            gridContextMenu.ForeColor = Color.FromArgb(205, 214, 244);
-            gridContextMenu.ShowImageMargin = false;
-
-            ToolStripMenuItem menuSelectAll = new ToolStripMenuItem("全选 (&A)");
-            menuSelectAll.ForeColor = Color.FromArgb(205, 214, 244);
-            menuSelectAll.Click += (s, e) => { SelectAllDeliveryRows(); };
-
-            ToolStripMenuItem menuDelete = new ToolStripMenuItem("删除 (&D)");
-            menuDelete.ForeColor = Color.FromArgb(243, 139, 168);
-            menuDelete.Click += (s, e) => { DeleteSelectedDeliveryRows(); };
-
-            gridContextMenu.Items.Add(menuSelectAll);
-            gridContextMenu.Items.Add(new ToolStripSeparator());
-            gridContextMenu.Items.Add(menuDelete);
-
-            gridDeliveries.ContextMenuStrip = gridContextMenu;
-            gridDeliveries.KeyDown += (s, e) =>
-            {
-                if (e.Control && e.KeyCode == Keys.A)
-                {
-                    SelectAllDeliveryRows();
-                    e.Handled = true;
-                }
-                else if (e.KeyCode == Keys.Delete)
-                {
-                    DeleteSelectedDeliveryRows();
-                    e.Handled = true;
-                }
-            };
-
             pnlDeliveries.Controls.Add(gridDeliveries);
-            this.Controls.Add(pnlDeliveries);
+            pageConsole.Controls.Add(pnlDeliveries);
+
+            tabWarRoom.TabPages.Add(pageConsole);
+            this.Controls.Add(tabWarRoom);
 
             this.ResumeLayout(false);
         }
@@ -668,9 +1342,557 @@ namespace CodeAiTools
             {
                 if (e.Button == MouseButtons.Left)
                 {
-                    ShowFloatingWindow();
+                    ShowTrayPreviewPopup();
                 }
             };
+        }
+
+        
+        // ====================================================================
+        // War Room Lifecycle, Checklist & Meetings Handlers
+        // ====================================================================
+
+        public void CheckAndPromptOnboarding()
+        {
+            try
+            {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                DirectoryInfo d = new DirectoryInfo(baseDir);
+                while (d != null && !Directory.Exists(Path.Combine(d.FullName, "CodeAi")) && !Directory.Exists(Path.Combine(d.FullName, "AI-War-Room")))
+                {
+                    d = d.Parent;
+                }
+                string projectRoot = d != null ? d.FullName : baseDir;
+
+                string candidateWarRoom = Path.Combine(projectRoot, "AI-War-Room");
+                string configPath = Path.Combine(candidateWarRoom, "config", "war_room.json");
+                string appLevelConfig = Path.Combine(baseDir, "war_room_config.json");
+
+                bool needOnboarding = true;
+                if (File.Exists(configPath))
+                {
+                    try
+                    {
+                        string json = File.ReadAllText(configPath, Encoding.UTF8);
+                        JavaScriptSerializer ser = new JavaScriptSerializer();
+                        warRoomConfig = ser.Deserialize<WarRoomConfig>(json);
+                        if (warRoomConfig != null && !string.IsNullOrEmpty(warRoomConfig.WarRoomRoot) && Directory.Exists(warRoomConfig.WarRoomRoot))
+                        {
+                            warRoomRootDir = warRoomConfig.WarRoomRoot;
+                            ctoName = warRoomConfig.CtoName;
+                            missionCapital = warRoomConfig.MissionCapital > 0 ? warRoomConfig.MissionCapital : 10000;
+                            needOnboarding = false;
+                        }
+                    }
+                    catch { }
+                }
+                else if (File.Exists(appLevelConfig))
+                {
+                    try
+                    {
+                        string json = File.ReadAllText(appLevelConfig, Encoding.UTF8);
+                        JavaScriptSerializer ser = new JavaScriptSerializer();
+                        warRoomConfig = ser.Deserialize<WarRoomConfig>(json);
+                        if (warRoomConfig != null && !string.IsNullOrEmpty(warRoomConfig.WarRoomRoot) && Directory.Exists(warRoomConfig.WarRoomRoot))
+                        {
+                            warRoomRootDir = warRoomConfig.WarRoomRoot;
+                            ctoName = warRoomConfig.CtoName;
+                            missionCapital = warRoomConfig.MissionCapital > 0 ? warRoomConfig.MissionCapital : 10000;
+                            needOnboarding = false;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (needOnboarding)
+                {
+                    using (WarRoomOnboardingForm obForm = new WarRoomOnboardingForm(ctoName, candidateWarRoom))
+                    {
+                        if (obForm.ShowDialog(this) == DialogResult.OK)
+                        {
+                            ctoName = obForm.SelectedCtoName;
+                            warRoomRootDir = obForm.SelectedWarRoomDir;
+                            missionCapital = 10000;
+                            EnsureWarRoomStructure(warRoomRootDir, ctoName);
+                        }
+                        else
+                        {
+                            warRoomRootDir = candidateWarRoom;
+                            EnsureWarRoomStructure(warRoomRootDir, ctoName);
+                        }
+                    }
+                }
+                else
+                {
+                    EnsureWarRoomStructure(warRoomRootDir, ctoName);
+                }
+
+                InitMissionWatcher();
+                ReloadMissionSummaryFromDisk();
+                ReloadChecklistFromDisk();
+                ReloadMeetingsFromDisk();
+                UpdateWarRoomHeaderUI();
+                UpdateTrayStatus();
+            }
+            catch (Exception ex)
+            {
+                LogAudit("ONBOARDING_ERROR", ex.Message);
+            }
+        }
+
+        public static void EnsureWarRoomStructure(string rootDir, string cto)
+        {
+            try
+            {
+                if (!Directory.Exists(rootDir)) Directory.CreateDirectory(rootDir);
+
+                string dirCto = Path.Combine(rootDir, "CTO");
+                string dirMembers = Path.Combine(rootDir, "Members");
+                string dirMeetings = Path.Combine(rootDir, "Meetings");
+                string dirMission = Path.Combine(rootDir, "Mission");
+                string dirConfig = Path.Combine(rootDir, "config");
+
+                if (!Directory.Exists(dirCto)) Directory.CreateDirectory(dirCto);
+                if (!Directory.Exists(dirMembers)) Directory.CreateDirectory(dirMembers);
+                if (!Directory.Exists(dirMeetings)) Directory.CreateDirectory(dirMeetings);
+                if (!Directory.Exists(dirMission)) Directory.CreateDirectory(dirMission);
+                if (!Directory.Exists(dirConfig)) Directory.CreateDirectory(dirConfig);
+
+                string[] memberNames = new string[] { "裁决者", "游隼", "泥蛇" };
+                foreach (string m in memberNames)
+                {
+                    string mDir = Path.Combine(dirMembers, m);
+                    if (!Directory.Exists(mDir)) Directory.CreateDirectory(mDir);
+                }
+
+                // 1. Mission/MISSION.md
+                string missionFile = Path.Combine(dirMission, "MISSION.md");
+                if (!File.Exists(missionFile))
+                {
+                    string missionContent = 
+"# AI War Room｜Mission 现实状态\n\n" +
+"- **任务目标**: 构建与验证多AI协作任务\n" +
+"- **当前范围**: 核心协同网络与闭环验证\n" +
+"- **当前施工点**: 首次开箱初始化完成，等待CTO指派第一项任务\n" +
+"- **已完成事项**: \n" +
+"  - [x] War Room 基础空间搭建\n" +
+"  - [x] 10,000 Starship Credits 注入\n" +
+"- **未完成事项**: \n" +
+"  - [ ] 召开首次AI协作立项会议\n" +
+"- **当前阻塞**: 无\n" +
+"- **冻结决策**: 无\n" +
+"- **下一主要动作**: CTO 启动立项并分配首轮子任务\n" +
+"- **最终交付条件**: 所有任务条目全部变为 DONE 且通过人工最终验收\n";
+                    File.WriteAllText(missionFile, missionContent, Encoding.UTF8);
+                }
+
+                // 2. Mission/CHECKLIST.md
+                string checklistFile = Path.Combine(dirMission, "CHECKLIST.md");
+                if (!File.Exists(checklistFile))
+                {
+                    string checklistContent =
+"# CTO Task Checklist\n\n" +
+"## 当前任务检查节点\n" +
+"- [DONE] 初始化 War Room 空间｜责任: 裁决者｜目标: 目录与初始资本就绪\n" +
+"- [TODO] 召开立项会议｜责任: CTO｜目标: 明确第一轮协作分工\n\n" +
+"## 变更与调整履历 (ADJUSTED / MODIFIED 记录)\n" +
+"<!-- 当条目发生 ADJUSTED 或 MODIFIED 时，必须在下方追加记录：\n" +
+"### 变更记录模板:\n" +
+"- **原内容**: ...\n" +
+"- **现在内容**: ...\n" +
+"- **变化原因**: ...\n" +
+"- **责任节点**: ...\n" +
+"- **影响**: ...\n" +
+"- **当前验收口径**: ...\n" +
+"-->\n";
+                    File.WriteAllText(checklistFile, checklistContent, Encoding.UTF8);
+                }
+
+                // 3. Mission/CREDITS.md
+                string creditsFile = Path.Combine(dirMission, "CREDITS.md");
+                if (!File.Exists(creditsFile))
+                {
+                    string creditsContent = string.Format(
+"# Mission Capital Ledger (Starship Credits)\n\n" +
+"- **Initial**: 10000 SC\n" +
+"- **Appointed CTO**: {0}\n\n" +
+"## Allocations\n" +
+"<!-- CTO 根据其他 AI 节点对任务的真实贡献，自主分配奖励：\n" +
+"Agent-A +xxxx\n" +
+"Agent-B +xxxx\n" +
+"-->\n\n" +
+"- **Remaining**: 10000 SC\n", cto);
+                    File.WriteAllText(creditsFile, creditsContent, Encoding.UTF8);
+                }
+
+                // 4. config/war_room.json
+                string configFile = Path.Combine(dirConfig, "war_room.json");
+                WarRoomConfig cfg = new WarRoomConfig
+                {
+                    CtoName = cto,
+                    WarRoomRoot = rootDir,
+                    MissionCapital = 10000,
+                    CurrentMission = "构建与验证多AI协作任务",
+                    CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
+                };
+                JavaScriptSerializer ser = new JavaScriptSerializer();
+                string json = ser.Serialize(cfg);
+                File.WriteAllText(configFile, json, Encoding.UTF8);
+
+                string appLevelCfg = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "war_room_config.json");
+                File.WriteAllText(appLevelCfg, json, Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        private void InitMissionWatcher()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(warRoomRootDir)) return;
+                string missionDir = Path.Combine(warRoomRootDir, "Mission");
+                if (!Directory.Exists(missionDir)) Directory.CreateDirectory(missionDir);
+
+                if (missionWatcher != null)
+                {
+                    missionWatcher.Dispose();
+                }
+
+                missionWatcher = new FileSystemWatcher(missionDir);
+                missionWatcher.Filter = "*.md";
+                missionWatcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size;
+                missionWatcher.Changed += (s, e) => { OnMissionFileChanged(); };
+                missionWatcher.Created += (s, e) => { OnMissionFileChanged(); };
+                missionWatcher.EnableRaisingEvents = true;
+            }
+            catch { }
+        }
+
+        private void OnMissionFileChanged()
+        {
+            if (this.IsDisposed || !this.IsHandleCreated) return;
+            this.BeginInvoke(new Action(() =>
+            {
+                Thread.Sleep(100);
+                ReloadMissionSummaryFromDisk();
+                ReloadChecklistFromDisk();
+                UpdateWarRoomHeaderUI();
+                UpdateTrayStatus();
+            }));
+        }
+
+        public void ReloadMissionSummaryFromDisk()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(warRoomRootDir)) return;
+                string missionPath = Path.Combine(warRoomRootDir, "Mission", "MISSION.md");
+                if (!File.Exists(missionPath)) return;
+
+                string[] lines = File.ReadAllLines(missionPath, Encoding.UTF8);
+                foreach (string line in lines)
+                {
+                    string trimmed = line.Trim();
+                    if (trimmed.StartsWith("- **任务目标**:") || trimmed.StartsWith("任务目标:"))
+                    {
+                        string target = trimmed.Substring(trimmed.IndexOf(':') + 1).Trim();
+                        if (!string.IsNullOrEmpty(target)) currentMissionTitle = target;
+                        break;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public void ReloadChecklistFromDisk()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(warRoomRootDir) || gridChecklist == null) return;
+                string checklistPath = Path.Combine(warRoomRootDir, "Mission", "CHECKLIST.md");
+                if (!File.Exists(checklistPath)) return;
+
+                string[] lines = File.ReadAllLines(checklistPath, Encoding.UTF8);
+                List<ChecklistItem> items = new List<ChecklistItem>();
+
+                Regex itemRegex = new Regex(@"^-\s*\[(DONE|TODO|ADJUSTED|MODIFIED|x|\s)\]\s*(?:([^｜|]+)[｜|])?\s*(.*)$", RegexOptions.IgnoreCase);
+
+                foreach (string line in lines)
+                {
+                    string trimmed = line.Trim();
+                    Match m = itemRegex.Match(trimmed);
+                    if (m.Success)
+                    {
+                        string rawState = m.Groups[1].Value.ToUpper().Trim();
+                        string state = rawState;
+                        if (rawState == "X") state = "DONE";
+                        else if (string.IsNullOrEmpty(rawState)) state = "TODO";
+
+                        string partA = (m.Groups[2].Value ?? "").Trim();
+                        string partB = (m.Groups[3].Value ?? "").Trim();
+
+                        string node = "CTO";
+                        string content = partA;
+                        if (!string.IsNullOrEmpty(partA) && !string.IsNullOrEmpty(partB))
+                        {
+                            node = partA;
+                            content = partB;
+                        }
+                        else if (string.IsNullOrEmpty(partA))
+                        {
+                            content = partB;
+                        }
+
+                        items.Add(new ChecklistItem
+                        {
+                            State = state,
+                            Node = node,
+                            Content = content,
+                            OriginalLine = trimmed
+                        });
+                    }
+                }
+
+                currentChecklistItems = items;
+
+                int countDone = 0, countTodo = 0, countAdj = 0, countMod = 0;
+                foreach (var it in items)
+                {
+                    if (it.State == "DONE") countDone++;
+                    else if (it.State == "TODO") countTodo++;
+                    else if (it.State == "ADJUSTED") countAdj++;
+                    else if (it.State == "MODIFIED") countMod++;
+                }
+
+                if (lblChecklistSummary != null)
+                {
+                    lblChecklistSummary.Text = string.Format(
+                        "任务统计: 全部 {0} | DONE: {1} | TODO: {2} | ADJUSTED: {3} | MODIFIED: {4}",
+                        items.Count, countDone, countTodo, countAdj, countMod
+                    );
+                }
+
+                gridChecklist.Rows.Clear();
+                foreach (var it in items)
+                {
+                    int rowIdx = gridChecklist.Rows.Add(it.State, it.Node, it.Content);
+                    var row = gridChecklist.Rows[rowIdx];
+                    row.Tag = it;
+
+                    if (it.State == "DONE")
+                    {
+                        row.DefaultCellStyle.BackColor = Color.FromArgb(30, 58, 47);
+                        row.DefaultCellStyle.ForeColor = Color.FromArgb(166, 227, 161);
+                    }
+                    else if (it.State == "TODO")
+                    {
+                        row.DefaultCellStyle.BackColor = Color.FromArgb(30, 42, 74);
+                        row.DefaultCellStyle.ForeColor = Color.FromArgb(137, 180, 250);
+                    }
+                    else if (it.State == "ADJUSTED")
+                    {
+                        row.DefaultCellStyle.BackColor = Color.FromArgb(61, 45, 30);
+                        row.DefaultCellStyle.ForeColor = Color.FromArgb(250, 179, 135);
+                    }
+                    else if (it.State == "MODIFIED")
+                    {
+                        row.DefaultCellStyle.BackColor = Color.FromArgb(54, 33, 74);
+                        row.DefaultCellStyle.ForeColor = Color.FromArgb(203, 166, 247);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public void ReloadMeetingsFromDisk()
+        {
+            try
+            {
+                List<string> dirsToScan = new List<string>();
+                if (!string.IsNullOrEmpty(warRoomRootDir))
+                {
+                    string wmDir = Path.Combine(warRoomRootDir, "Meetings");
+                    if (Directory.Exists(wmDir)) dirsToScan.Add(wmDir);
+                }
+                if (!string.IsNullOrEmpty(meetingDir) && Directory.Exists(meetingDir) && !dirsToScan.Contains(meetingDir))
+                {
+                    dirsToScan.Add(meetingDir);
+                }
+
+                List<MeetingRowItem> items = new List<MeetingRowItem>();
+                Regex r = new Regex(@"^(\d{14})·协作·([^·]+)to([^·]+)·(.*)\.(txt|md)$");
+
+                foreach (string d in dirsToScan)
+                {
+                    string[] files = Directory.GetFiles(d, "*.*");
+                    foreach (string f in files)
+                    {
+                        string fname = Path.GetFileName(f);
+                        Match m = r.Match(fname);
+                        if (m.Success)
+                        {
+                            string rawTime = m.Groups[1].Value;
+                            string timeDisplay = rawTime.Length >= 12 ? rawTime.Substring(8, 2) + ":" + rawTime.Substring(10, 2) : rawTime;
+                            string sender = m.Groups[2].Value.Trim();
+                            string recipient = m.Groups[3].Value.Trim();
+                            string title = m.Groups[4].Value.Trim();
+
+                            string actionType = "TASK";
+                            string upperTitle = title.ToUpper();
+                            if (upperTitle.Contains("TO_HUMAN") || upperTitle.Contains("HUMAN")) actionType = "TO_HUMAN";
+                            else if (upperTitle.Contains("FINAL") || upperTitle.Contains("闭环") || upperTitle.Contains("验收通过")) actionType = "FINAL";
+                            else if (upperTitle.Contains("PATCH_DONE") || upperTitle.Contains("补丁完成")) actionType = "PATCH_DONE";
+                            else if (upperTitle.Contains("NEEDS_PATCH") || upperTitle.Contains("要求补丁")) actionType = "NEEDS_PATCH";
+                            else if (upperTitle.Contains("VERIFY") || upperTitle.Contains("验证")) actionType = "VERIFY";
+                            else if (upperTitle.Contains("REVIEW") || upperTitle.Contains("审查") || upperTitle.Contains("评估")) actionType = "REVIEW";
+                            else if (upperTitle.Contains("RESULT") || upperTitle.Contains("回执") || upperTitle.Contains("交付")) actionType = "RESULT";
+                            else if (upperTitle.Contains("PASS")) actionType = "PASS";
+
+                            items.Add(new MeetingRowItem
+                            {
+                                Timestamp = timeDisplay,
+                                Type = actionType,
+                                Sender = sender,
+                                Recipient = recipient,
+                                Title = title,
+                                FilePath = f,
+                                FileName = fname
+                            });
+                        }
+                    }
+                }
+
+                items.Sort((a, b) => string.Compare(b.FileName, a.FileName, StringComparison.OrdinalIgnoreCase));
+                currentMeetingItems = items;
+
+                if (lblMeetingsSummary != null)
+                {
+                    lblMeetingsSummary.Text = string.Format("会议动态: 索引共 {0} 篇真实信件 (双击打开原件)", items.Count);
+                }
+
+                if (gridMeetings != null)
+                {
+                    gridMeetings.Rows.Clear();
+                    foreach (var it in items)
+                    {
+                        int rowIdx = gridMeetings.Rows.Add(it.Timestamp, it.Type, it.Sender, it.Recipient, it.Title);
+                        var row = gridMeetings.Rows[rowIdx];
+                        row.Tag = it;
+
+                        if (it.Type == "TO_HUMAN")
+                        {
+                            row.DefaultCellStyle.BackColor = Color.FromArgb(69, 40, 55);
+                            row.DefaultCellStyle.ForeColor = Color.FromArgb(243, 139, 168);
+                        }
+                        else if (it.Type == "FINAL" || it.Type == "PASS")
+                        {
+                            row.DefaultCellStyle.BackColor = Color.FromArgb(30, 58, 47);
+                            row.DefaultCellStyle.ForeColor = Color.FromArgb(166, 227, 161);
+                        }
+                        else if (it.Type == "NEEDS_PATCH")
+                        {
+                            row.DefaultCellStyle.BackColor = Color.FromArgb(61, 45, 30);
+                            row.DefaultCellStyle.ForeColor = Color.FromArgb(250, 179, 135);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void OpenChecklistFile()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(warRoomRootDir)) return;
+                string p = Path.Combine(warRoomRootDir, "Mission", "CHECKLIST.md");
+                if (File.Exists(p))
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(p) { UseShellExecute = true });
+                }
+            }
+            catch { }
+        }
+
+        private void OpenMeetingsDirectory()
+        {
+            try
+            {
+                string targetDir = null;
+                if (!string.IsNullOrEmpty(warRoomRootDir))
+                {
+                    string d = Path.Combine(warRoomRootDir, "Meetings");
+                    if (Directory.Exists(d)) targetDir = d;
+                }
+                if (string.IsNullOrEmpty(targetDir) && !string.IsNullOrEmpty(meetingDir) && Directory.Exists(meetingDir))
+                {
+                    targetDir = meetingDir;
+                }
+                if (!string.IsNullOrEmpty(targetDir))
+                {
+                    System.Diagnostics.Process.Start("explorer.exe", targetDir);
+                }
+            }
+            catch { }
+        }
+
+        private void OpenSelectedMeetingFile()
+        {
+            try
+            {
+                if (gridMeetings != null && gridMeetings.SelectedRows.Count > 0)
+                {
+                    MeetingRowItem item = gridMeetings.SelectedRows[0].Tag as MeetingRowItem;
+                    if (item != null && !string.IsNullOrEmpty(item.FilePath) && File.Exists(item.FilePath))
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(item.FilePath) { UseShellExecute = true });
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void UpdateWarRoomHeaderUI()
+        {
+            if (lblWarRoomHeader != null)
+            {
+                lblWarRoomHeader.Text = string.Format("🏢 AI War Room | CTO: {0} | 资本: {1} SC", ctoName, missionCapital);
+            }
+            if (lblMissionSubtitle != null)
+            {
+                string alertText = pendingToHumanCount > 0 ? string.Format(" | ⚠️ 敲门待办: {0}", pendingToHumanCount) : "";
+                lblMissionSubtitle.Text = string.Format("🎯 Mission: {0}{1}", currentMissionTitle, alertText);
+            }
+        }
+
+        private void UpdateTrayStatus()
+        {
+            if (trayIcon == null) return;
+            string text = string.Format("CTO:{0} | M:{1} | H:{2}", ctoName, currentMissionTitle, pendingToHumanCount);
+            if (text.Length > 63)
+            {
+                text = text.Substring(0, 60) + "...";
+            }
+            trayIcon.Text = text;
+        }
+
+        private void ShowTrayPreviewPopup()
+        {
+            try
+            {
+                TrayPreviewPopupForm popup = new TrayPreviewPopupForm(
+                    ctoName,
+                    currentMissionTitle,
+                    missionCapital,
+                    pendingToHumanCount,
+                    currentMeetingItems,
+                    () => { ShowFloatingWindow(); if (tabWarRoom != null) tabWarRoom.SelectedIndex = 0; },
+                    () => { OpenMeetingsDirectory(); },
+                    () => { ShowFloatingWindow(); }
+                );
+                popup.Show();
+            }
+            catch { }
         }
 
         private void ToggleWatchMode()

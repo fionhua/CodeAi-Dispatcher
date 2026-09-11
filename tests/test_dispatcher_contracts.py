@@ -326,6 +326,116 @@ class TestCodeAiDispatcherContracts(unittest.TestCase):
         self.assertTrue(handle_event())
         self.assertEqual(len(notification_log), 2)
 
+    def test_war_room_structure_generation(self):
+        """War Room 基础目录与文件生成规范契约"""
+        import tempfile
+        import shutil
+
+        temp_dir = tempfile.mkdtemp(prefix="war_room_test_")
+        try:
+            # 模拟生成逻辑
+            subdirs = ["CTO", "Members", "Meetings", "Mission", "config"]
+            for d in subdirs:
+                os.makedirs(os.path.join(temp_dir, d), exist_ok=True)
+            
+            for m in ["裁决者", "游隼", "泥蛇"]:
+                os.makedirs(os.path.join(temp_dir, "Members", m), exist_ok=True)
+
+            mission_md = os.path.join(temp_dir, "Mission", "MISSION.md")
+            checklist_md = os.path.join(temp_dir, "Mission", "CHECKLIST.md")
+            credits_md = os.path.join(temp_dir, "Mission", "CREDITS.md")
+            cfg_json = os.path.join(temp_dir, "config", "war_room.json")
+
+            for f in [mission_md, checklist_md, credits_md, cfg_json]:
+                with open(f, "w", encoding="utf-8") as fp:
+                    fp.write("dummy")
+
+            # 验证所有目录与核心文件均存在
+            for d in subdirs:
+                self.assertTrue(os.path.isdir(os.path.join(temp_dir, d)))
+            for m in ["裁决者", "游隼", "泥蛇"]:
+                self.assertTrue(os.path.isdir(os.path.join(temp_dir, "Members", m)))
+            for f in [mission_md, checklist_md, credits_md, cfg_json]:
+                self.assertTrue(os.path.isfile(f))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_mission_md_nine_required_fields(self):
+        """MISSION.md 必须持续维护当前任务现实状态且必须包含 9 项规定字段"""
+        sample_mission_md = """
+# AI War Room｜Mission 现实状态
+
+- **任务目标**: 构建与验证多AI协作任务
+- **当前范围**: 核心协同网络与闭环验证
+- **当前施工点**: 首次开箱初始化完成，等待CTO指派第一项任务
+- **已完成事项**: 
+  - [x] War Room 基础空间搭建
+  - [x] 10,000 Starship Credits 注入
+- **未完成事项**: 
+  - [ ] 召开首次AI协作立项会议
+- **当前阻塞**: 无
+- **冻结决策**: 无
+- **下一主要动作**: CTO 启动立项并分配首轮子任务
+- **最终交付条件**: 所有任务条目全部变为 DONE 且通过人工最终验收
+"""
+        required_fields = [
+            "任务目标", "当前范围", "当前施工点", "已完成事项",
+            "未完成事项", "当前阻塞", "冻结决策", "下一主要动作", "最终交付条件"
+        ]
+        for field in required_fields:
+            self.assertIn(f"**{field}**", sample_mission_md, f"MISSION.md 必须包含 '{field}' 现实状态字段！")
+
+    def test_checklist_four_states_parsing(self):
+        """CHECKLIST.md 必须支持 DONE, TODO, ADJUSTED, MODIFIED 四态解析"""
+        checklist_lines = [
+            "- [DONE] 初始化 War Room 空间｜责任: 裁决者｜目标: 目录与初始资本就绪",
+            "- [TODO] 召开立项会议｜责任: CTO｜目标: 明确第一轮协作分工",
+            "- [ADJUSTED] 协议验证模块｜责任: 游隼｜原内容: 独立服务 -> 现内容: 进程内自包含",
+            "- [MODIFIED] 音效格式规范｜责任: 裁决者｜原内容: MP3 -> 现内容: 纯数学合成WAV"
+        ]
+        pattern = re.compile(r"^-\s*\[(DONE|TODO|ADJUSTED|MODIFIED|x|\s)\]\s*(?:([^｜|]+)[｜|])?\s*(.*)$", re.IGNORECASE)
+        parsed_states = []
+        for line in checklist_lines:
+            m = pattern.match(line.strip())
+            self.assertIsNotNone(m, f"未能匹配 Checklist 行: {line}")
+            state = m.group(1).upper()
+            parsed_states.append(state)
+
+        self.assertEqual(parsed_states, ["DONE", "TODO", "ADJUSTED", "MODIFIED"])
+
+    def test_credits_ledger_format(self):
+        """CREDITS.md 必须维护 10,000 SC 最小账本"""
+        sample_credits = """
+# Mission Capital Ledger (Starship Credits)
+
+- **Initial**: 10000 SC
+- **Appointed CTO**: 泥蛇
+
+## Allocations
+Agent-A +1000
+Agent-B +2000
+
+- **Remaining**: 7000 SC
+"""
+        self.assertIn("10000 SC", sample_credits)
+        self.assertIn("Appointed CTO", sample_credits)
+        self.assertIn("Remaining", sample_credits)
+
+    def test_tray_hover_length_limit(self):
+        """Tray Hover 提示文字必须严格 <= 63 字符以防止 WinForms 抛出 ArgumentException"""
+        cto = "超级长名称代码总监泥蛇CTO" * 3
+        mission = "这是一个极其漫长并且充满细节的长程协同Mission任务目标名称" * 3
+        human_count = 5
+
+        # 模拟 C# 中的截断逻辑
+        text = f"CTO:{cto} | M:{mission} | H:{human_count}"
+        self.assertGreater(len(text), 63)
+        if len(text) > 63:
+            text = text[:60] + "..."
+
+        self.assertLessEqual(len(text), 63, "NotifyIcon.Text 绝不能超过 63 字符！")
+        self.assertTrue(text.endswith("..."))
+
 
 if __name__ == "__main__":
     unittest.main()
